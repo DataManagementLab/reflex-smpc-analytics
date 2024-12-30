@@ -1,0 +1,251 @@
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.bit_length = 64
+
+sfix.set_precision(4,32)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+
+def randomness_online(noise_amount):
+    #result_array = Array(noise_amount,sfix)
+    listen_for_clients(15000)
+    socket = accept_client_connection(15000)
+
+    @for_range(noise_amount)
+    def _(i):
+        x = cfix.read_from_socket(socket)
+        x = sfix.receive_from_client()
+        print_ln("x is:%s",x)
+        #result_array[i] = sfix(x)
+
+
+    #print_ln(result_array.reveal())  
+
+
+
+def randomness_online_to0(noise_amount):
+    @if_(get_player_id()._v == 0)
+    def _():
+        global socket
+        listen_for_clients(15000)
+        socket = accept_client_connection(15000)
+
+    @for_range(10)
+    def _(i):
+        @if_(get_player_id()._v == 0)
+        def _():
+            global x
+            x = cfix.read_from_socket(socket)
+        #print_ln('%s', sfix(personal(0, x)).reveal())
+        print_ln('%s', x)
+
+
+def generate_random_coin_with_probability(noise,ran_length):
+    result = sint.Array(ran_length)
+    @for_range_opt(ran_length)
+    def _(i):
+        v = sint(np.random.randint(65535)%ran_length)
+        #print_ln("random v is:%s", v.reveal())
+        result[i] = (v<=noise).if_else(sint(1),sint(0))
+
+        #print_ln("random bit is:%s", result[i].reveal())
+
+    return result
+
+def generate_laplace(sensitivity,epsilon):
+    beta = sensitivity / epsilon
+    r1 = sfix(np.random.random())
+    r2 = np.random.random()
+    r3 = np.random.random()
+    rr1 = 1 - sfix((r2+r3)*10%10/10)
+    rr2 = sfix((r2+r3)*10%10/10)
+    value = 0
+    value1 = -beta * mpc_math.log_fx(rr1,math.e)
+    value2 = beta * mpc_math.log_fx(rr2,math.e)
+
+    value = (r1 <= 0.5).if_else(value1,value2)
+    print_ln("original noise is: %s", value.reveal())
+
+    return value*2
+
+def generate_truncated_laplace(sensitivity,epsilon,delta):
+    eoversen = epsilon/sensitivity
+    p = (np.exp(eoversen) - 1) / (np.exp(eoversen) + 1)
+    noise0 = sfix(-sensitivity * np.log((np.exp(eoversen) + 1) * delta) / epsilon + sensitivity)
+    r1 = sfix(np.random.randint(65535) % 10000 / 10000)
+    r2 = sfix(np.random.randint(65535) % 10000 / 10000)
+    r3 = sfix(np.random.randint(65535) % 10000 / 10000)
+
+    u = (r1 + r2 + r3 ) / 3 
+    #print_ln("noise0 is:%s",noise0)
+    senovere = sensitivity / epsilon
+    ptsen = p * sensitivity
+    v1 = noise0 + senovere * mpc_math.log_fx(((epsilon*u)/ptsen), math.e)
+    v2 = noise0 - senovere * mpc_math.log_fx(((epsilon*(1-u))/ptsen), math.e)
+
+    v = (u <= 0.5).if_else(v1,v2)
+    print_ln("original noise is: %s", v.reveal())
+    return v
+
+
+def distinct(t_input_sorted,tsize):
+    
+    resultarray = Array(tsize,sint)
+
+    resultarray[0] = t_input_sorted[0][2]
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] != t_input_sorted[i+1][0]
+        temp = eqb.bit_and(t_input_sorted[i+1][2])
+        resultarray[i+1] = (temp == 1).if_else(sint(1),sint(0))
+    return resultarray
+
+def equi_join_smallerthan_withnoise(t1, table_size1, t2, table_size2, noise, coin_seq):
+    intermediate_array = Matrix(table_size1*table_size2,5,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]
+            match2 = t1[i][1] <= t2[j][1]
+
+            fmatch = match.bit_and(match2)
+
+            flagN = noise >= noise_count
+            fMatch = flagN.bit_and(coin_seq[count])
+
+            match2 = (fmatch == 1).if_else(sint(1),fMatch)
+
+            Match = match == 0
+            Ncount = fMatch == 1 
+            NcountBit = Match.bit_and(Ncount) == 1
+            
+            value1 = noise_count+1
+            value2 = noise_count
+
+            temp = (NcountBit == 1).if_else(value1,value2)
+            noise_count.write(temp)
+
+            intermediate_size.iadd(match2)
+            intermediate_array[count][0] = match2
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+
+
+n = 10
+sensitivity = 1
+epsilon = 0.5
+delta = 0.0005
+
+m1 = Matrix(n,2,sint)
+m2 = Matrix(n,2,sint)
+
+
+
+@for_range_opt(n)
+def _(i):
+    m1[i][0] = sint.get_input_from(0) #key
+    m1[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(n)
+def _(i):
+    m2[i][0] = sint.get_input_from(1) #key
+    m2[i][1] = sint.get_input_from(1) #value
+
+
+
+#randomness_online(10)
+#randomness_online_to0(10)
+# q = sfix.get_random(0.0001,0.9999)
+# print_ln("q is:%s", q.reveal())
+
+#print_ln("b is:%s", sfix(b).reveal())
+
+start_timer(130)
+#noise = abs(generate_laplace(n,0.5))
+noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+stop_timer(130)
+
+
+# start_timer(131)
+# coin_seq = generate_random_coin_with_probability(noise,n*n)
+# stop_timer(131)
+
+
+# @if_(get_player_id()._v == 0)
+# def _():
+#     global socket
+#     listen_for_clients(15000)
+#     socket = accept_client_connection(15000)
+
+# @for_range(10)
+# def _(i):
+#     @if_(get_player_id()._v == 0)
+#     def _():
+#         global x
+#         x = sfix.read_from_socket(socket)
+#     print_ln('%s', x.reveal_to(0))
+
+
+
+
+# start_timer(110)
+# intermediate_size, intermediate_array = equi_join_smallerthan_withnoise(m1,n,m2,n,noise,coin_seq)
+# stop_timer(110)
+
+
+# @for_range_opt(n*n)
+# def _(i):
+#     intermediate_array[i][0].reveal()
+
+# sortM = Matrix(int(n/10),4,sint)
+# @for_range_opt(int(n/10))
+# def _(i):
+#     #sortM[i][0] = intermediate_array[i][1]
+#     sortM[i][0] = intermediate_array[i][0] + intermediate_array[i][1]*10
+#     sortM[i][1] = intermediate_array[i][3]
+#     sortM[i][2] = intermediate_array[i][0]
+#     sortM[i][3] = intermediate_array[i][1]
+
+
+
+# sortM.sort()
+
+
+# #@for_range_opt(n*n)
+# #def _(i):
+# #    print_ln("matrix is: %s %s %s",sortM[i][0].reveal(),sortM[i][1].reveal(),sortM[i][2].reveal())
+
+
+# start_timer(111)
+# r = distinct(sortM,int(n/10))
+# stop_timer(111)
+
+
+
+
+
+
+#@for_range_opt(10)
+#def _(i):
+#    print_ln("sortM array is:%s %s %s %s, r is:%s",sortM[i][1].reveal(),sortM[i][3].reveal(),sortM[i][4].reveal(),sortM[i][5].reveal(),r[i].reveal())
+

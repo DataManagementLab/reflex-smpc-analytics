@@ -1,0 +1,223 @@
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+
+program.use_trunc_pr = True
+program.use_split(3)
+sfix.set_precision(4,32)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+true_matches = MemValue(sint(0))
+
+temp = MemValue(sint(0))
+distinct_c = MemValue(sint(0))
+bigvalue = 100000
+
+def reveal_copy(input_size, output_size, inputmatrix):
+    resultm = Matrix(output_size,6,sint)
+    @for_range_opt(input_size)
+    def _(i):
+        inputmatrix[i][0].reveal()
+
+    @for_range_opt(output_size)
+    def _(i):
+        resultm = inputmatrix[i][0]
+
+
+    return resultm
+
+def generate_truncated_laplace(sensitivity,epsilon,delta):
+    eoversen = epsilon/sensitivity
+    p = (np.exp(eoversen) - 1) / (np.exp(eoversen) + 1)
+    noise0 = sfix(-sensitivity * np.log((np.exp(eoversen) + 1) * delta) / epsilon + sensitivity)
+    r1 = sfix.get_random(0.0001,1)
+    r2 = sfix.get_random(0.0001,1)
+    r3 = sfix.get_random(0.0001,1)
+    u = (r1 + r2 + r3 ) / 3 
+    #print_ln("noise0 is:%s",noise0)
+    senovere = sensitivity / epsilon
+    ptsen = p * sensitivity
+    v1 = noise0 + senovere * mpc_math.log_fx(((epsilon*u)/ptsen), math.e)
+    v2 = noise0 - senovere * mpc_math.log_fx(((epsilon*(1-u))/ptsen), math.e)
+
+    v = (u <= 0.5).if_else(v1,v2)
+    print_ln("original noise is: %s", v.reveal())
+    return v
+
+def distinct_count(t_input_sorted,tsize):
+    resultarray = Array(tsize,sint)
+    resultarray[0] = t_input_sorted[0][2]
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        #print_ln("input 0 and 1 is:%s,%s",t_input_sorted[i][0].reveal(),t_input_sorted[i+1][0].reveal())
+        eqb = t_input_sorted[i][0] != t_input_sorted[i+1][0]
+        #print_ln("eqb is:%s",eqb.reveal())
+        temp = eqb.bit_and(t_input_sorted[i+1][2])
+        resultarray[i+1] = (temp == 1).if_else(sint(1),sint(0))
+        #print_ln("v is:%s",resultarray[i+1].reveal())
+        distinct_c.iadd(resultarray[i+1])
+    return distinct_c
+
+def sum_online(r1,r2,r3):
+    return r1+r2+r3
+
+def compute_threshold_three_servers(noise, true_matches,table_size, numberOfservers):
+    return int(noise/(table_size-true_matches)*bigvalue*numberOfservers)
+
+def flip_coin_new(threshold, c1i):
+    result = (c1i<=threshold).if_else(sint(1),sint(0))
+    return result
+
+def equi_join_reflex(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]    
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            #intermediate_array[count][0] = 0
+            count.write(count+1)
+            true_matches.write(match+true_matches)
+    count.write(0)
+
+    return intermediate_array
+
+
+def equi_join_reflex_eq_merge_smallerthan(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]
+            match2 = t1[i][1] <= t2[j][1]
+            match_ = match.bit_and(match2)  
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match_
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+            true_matches.write(match+true_matches)
+    count.write(0)
+
+    return intermediate_array
+
+def resizer_operator_parallel(inputtable, inputsizex, inputsizey, truematches, noise, threshold, rlist0,rlist1,rlist2):#inputtable_index0 is c1
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    @for_range_opt(inputsizey)
+    def _(i):
+        coin  = flip_coin_new(threshold, sum_online(rlist0[i],rlist1[i],rlist2[i]))
+        fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+        output[i][inputsizex] = fuzzyv
+
+    output.secure_shuffle()
+    outm = reveal_copy(inputsizey,truematches+noise,output)
+
+    return outm
+
+
+def noisy_filter_reflex(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,4,sint)
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        intermediate_size.iadd(relevant_bit)
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+######################################
+sensitivity = 1
+epsilon = 0.5
+delta = 0.00005
+
+n = 1000
+x = 6
+number_of_rand = 1000000
+percentage = 0.1
+truematches = int(n*percentage)
+
+
+print_ln("n is:%s",n)
+
+m1 = Matrix(n,2,sint)
+m2 = Matrix(n,2,sint)
+
+rlist0 = sint.Array(number_of_rand)
+rlist1 = sint.Array(number_of_rand)
+rlist2 = sint.Array(number_of_rand)
+
+
+
+
+@for_range_opt(n)
+def _(i):
+    m1[i][0] = sint.get_input_from(0) #key pid
+    m1[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(n)
+def _(i):
+    m2[i][0] = sint.get_input_from(1) #key pid
+    m2[i][1] = sint.get_input_from(1) #value
+
+
+
+start_timer(100)
+noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+stop_timer(100)
+
+
+start_timer(200)
+keyword = sint(33425)
+filtered_table1 = noisy_filter_reflex(m1,n,1,keyword)
+noise = int(n*percentage)
+threshold = compute_threshold_three_servers(noise, truematches,n,3)
+out1 = resizer_operator_parallel(filtered_table1,x,n,truematches,noise,threshold,rlist0,rlist1,rlist2)
+stop_timer(200)
+
+
+start_timer(201)
+keyword = sint(33425)
+filtered_table2 = noisy_filter_reflex(m2,n,1,keyword)
+noise = int(n*percentage)
+threshold = compute_threshold_three_servers(noise, truematches,n,3)
+out2 = resizer_operator_parallel(filtered_table2,x,n,truematches,noise,threshold,rlist0,rlist1,rlist2)
+stop_timer(201)
+
+
+start_timer(110)
+intermediate_array = equi_join_reflex_eq_merge_smallerthan(out1,int(n*percentage),out2,int(n*percentage))
+noise = int(n*percentage)
+threshold = compute_threshold_three_servers(noise, truematches,n,3)
+out3 = resizer_operator_parallel(intermediate_array,x,int(n*percentage*n*percentage),int(truematches*truematches*percentage),noise,threshold,rlist0,rlist1,rlist2)
+stop_timer(110)
+
+
+start_timer(101)
+out3.sort()
+stop_timer(101)
+
+
+start_timer(111)
+r = distinct_count(out3,int(truematches*truematches*percentage+noise))
+stop_timer(111)
+
+
+
+
+

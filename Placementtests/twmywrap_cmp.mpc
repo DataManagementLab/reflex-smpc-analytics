@@ -1,0 +1,603 @@
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+sfix.set_precision(4, 32)
+program.use_split(3)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+secure_counter = MemValue(sint(0))
+true_matches = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+bigvalue = 2**20
+
+
+def filter(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        intermediate_size.iadd(relevant_bit)
+
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+def reveal_copy(input_size, output_size, inputmatrix):
+    resultm = Matrix(output_size,6,sint)
+    @for_range_opt(input_size)
+    def _(i):
+        inputmatrix[i][0].reveal()
+
+    @for_range_opt(output_size)
+    def _(i):
+        resultm = inputmatrix[i][0]
+
+
+    return resultm
+
+
+def resizer_operator(inputtable, inputsizex, inputsizey, truematches, N_amount, N_add, threshold):#inputtable_index0 is c1
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    if N_add == 0:
+        @for_range_opt(inputsizey)
+        def _(i):
+            coin  = flip_coin_new(threshold, inputtable[i][0])
+            fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+            output[i][inputsizex] = fuzzyv
+
+    else:
+        secure_counter.write(N_amount)
+        @for_range_opt(inputsizey)
+        def _(i):
+            #outcon = sint(1)
+            outcon = (secure_counter>0).if_else(sint(1),sint(0))
+            output[i][inputsizex] = (inputtable[i][0]==1).if_else(sint(1),outcon)
+            temp = (inputtable[i][0]==0).if_else(secure_counter-1,secure_counter)
+            secure_counter.write(temp)
+        #secure_counter.write(sint(0))
+
+    output.secure_shuffle()
+    outm = reveal_copy(inputsizey,truematches+N_amount,output)
+
+    return outm
+
+    
+
+def compute_threshold(noise, true_matches,table_size):
+    return noise/(table_size-true_matches)*bigvalue
+
+def flip_coin_new(threshold, c1i):
+    result = (c1i<=threshold).if_else(sint(1),sint(0))
+    return result
+
+
+def generate_r(r1,r2,r3):
+    return (r1+r2+r3)/3
+
+
+def sum_online(r1,r2,r3):
+    return r1+r2+r3
+
+
+def resizer_operator_updated(inputtable, inputsizex, inputsizey, truematches, N_amount, N_add, threshold,rlist0,rlist1,rlist2):#inputtable_index0 is c1
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    if N_add == 0:
+        @for_range_opt(inputsizey)
+        def _(i):
+            coin  = flip_coin_new(threshold, sum_online(rlist0,rlist1,rlist2))
+            fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+            output[i][inputsizex] = fuzzyv
+
+    else:
+        secure_counter.write(N_amount)
+        @for_range_opt(inputsizey)
+        def _(i):
+            #outcon = sint(1)
+            outcon = (secure_counter>0).if_else(sint(1),sint(0))
+            output[i][inputsizex] = (inputtable[i][0]==1).if_else(sint(1),outcon)
+            temp = (inputtable[i][0]==0).if_else(secure_counter-1,secure_counter)
+            secure_counter.write(temp)
+        #secure_counter.write(sint(0))
+
+    output.secure_shuffle()
+    outm = reveal_copy(inputsizey,truematches+N_amount,output)
+
+    return outm
+
+
+# def flip_coin_online(noise,true_matches,table_size, r1 , r2 , r3):
+#     v = (r1 + r2 + r3 ) / 3  
+#     result = (v<=noise+true_matches*noise/table_size).if_else(sint(1),sint(0))
+    
+#     return result
+
+def generate_truncated_laplace(sensitivity,epsilon,delta):
+    eoversen = epsilon/sensitivity
+    p = (np.exp(eoversen) - 1) / (np.exp(eoversen) + 1)
+    noise0 = sfix(-sensitivity * np.log((np.exp(eoversen) + 1) * delta) / epsilon + sensitivity)
+    r1 = sfix.get_random(0.0001,1)
+    r2 = sfix.get_random(0.0001,1)
+    r3 = sfix.get_random(0.0001,1)
+
+    u = (r1 + r2 + r3 ) / 3 
+    #print_ln("noise0 is:%s",noise0)
+    senovere = sensitivity / epsilon
+    ptsen = p * sensitivity
+    v1 = noise0 + senovere * mpc_math.log_fx(((epsilon*u)/ptsen), math.e)
+    v2 = noise0 - senovere * mpc_math.log_fx(((epsilon*(1-u))/ptsen), math.e)
+
+    v = (u <= 0.5).if_else(v1,v2)
+    print_ln("original noise is: %s", v.reveal())
+    return v
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,5,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0]==t2[j][0]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+def equi_join_withnoise(t1, table_size1, t2, table_size2, noise,r1,r2,r3):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]    
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+    count.write(0)
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            coin  = flip_coin_online(noise,intermediate_size,table_size1,r1,r2,r3)
+            fuzzyv = (intermediate_array[count][5] == 1).if_else(sint(1),coin)
+            intermediate_array[count][0] = fuzzyv
+            count.write(count+1)
+    count.write(0)
+
+    return intermediate_array
+
+def equi_join_newhalfcoin(t1, table_size1, t2, table_size2, noise,r1,r2,r3):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]    
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            intermediate_array[count][0] = generate_r(r1,r2,r3)
+            count.write(count+1)
+            true_matches.write(match+true_matches)
+    count.write(0)
+
+    threshold = compute_threshold(noise, true_matches,table_size1*table_size2)
+
+
+    return threshold, intermediate_array
+
+
+def equi_join_withnoise_new_coin(t1, table_size1, t2, table_size2, noise,r1,r2,r3):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]    
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            intermediate_array[count][0] = generate_r(r1,r2,r3)
+            count.write(count+1)
+            true_matches.write(match+true_matches)
+    count.write(0)
+
+    threshold = compute_threshold(noise, true_matches,table_size1*table_size2)
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            coin  = flip_coin_new(threshold, intermediate_array[count][0])
+            fuzzyv = (intermediate_array[count][5] == 1).if_else(sint(1),coin)
+            intermediate_array[count][0] = fuzzyv
+            count.write(count+1)
+    count.write(0)
+
+    return intermediate_array
+
+
+def equi_join_withnoise_new_coin_2(t1, table_size1, t2, table_size2, noise,r1,r2,r3):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]    
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+            true_matches.write(match+true_matches)
+    count.write(0)
+
+    threshold = compute_threshold(noise, true_matches,table_size1*table_size2)
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            coin  = flip_coin_new(threshold, intermediate_array[count][0])
+            fuzzyv = (intermediate_array[count][5] == 1).if_else(sint(1),coin)
+            intermediate_array[count][0] = fuzzyv
+            count.write(count+1)
+    count.write(0)
+
+    return intermediate_array
+
+
+
+def equi_join_withnoise_nocoin(t1, table_size1, t2, table_size2, noise):
+    intermediate_array = Matrix(table_size1*table_size2,7,sint)
+    #secure_counter.write(noise)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]   
+            intermediate_size.iadd(match)
+            #counterbit = secure_counter != 0
+            #matchbit = match == 0
+            #outbit = counterbit.bit_and(matchbit)
+            outcon = (secure_counter<=noise).if_else(sint(1),sint(0))
+            matchbit =  (match == 1).if_else(sint(1),outcon)
+            temp = (match == 0).if_else(secure_counter+1,secure_counter)
+            secure_counter.write(temp)
+
+            intermediate_array[count][5] = match
+            
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            intermediate_array[count][6] = matchbit
+            count.write(count+1)
+    count.write(0)
+    return intermediate_array
+
+######################################
+#n = 1000 #table_size
+
+n = 100
+x = 2
+
+print_ln("n is:%s",n)
+
+sensitivity = n
+epsilon = 0.5
+delta = 0.00005
+number_of_rand = 1000000
+
+m1 = Matrix(n,x,sint)
+m2 = Matrix(n,x,sint)
+#m3 = Matrix(n,2,sint)
+
+rlist0 = sint.Array(number_of_rand)
+rlist1 = sint.Array(number_of_rand)
+rlist2 = sint.Array(number_of_rand)
+
+@for_range_opt(n)
+def _(i):
+    m1[i][0] = sint.get_input_from(0) #key pid
+    m1[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(n)
+def _(i):
+    m2[i][0] = sint.get_input_from(1) #key pid
+    m2[i][1] = sint.get_input_from(1) #value
+
+
+@for_range_opt(number_of_rand)
+def _(i):
+    rlist1[i] = sint.get_input_from(0)
+    rlist2[i] = sint.get_input_from(1)
+    rlist3[i] = sint.get_input_from(2)
+
+
+
+#############################################1st fuzzy Join
+# start_timer(100)
+# noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+# stop_timer(100)
+
+
+# start_timer(110)
+# r1 = sfix.get_random(0.1,n)
+# r2 = sfix.get_random(0.1,n)
+# r3 = sfix.get_random(0.1,n)
+# intermediate_array = equi_join_withnoise(m1,n,m2,n,noise,r1,r2,r3)
+# stop_timer(110)
+
+
+# start_timer(111)
+# @for_range_opt(n*n)
+# def _(i):
+#     intermediate_array[i][0].reveal()
+# stop_timer(111)
+
+#############################################1st normal join
+
+# start_timer(200)
+# size, inter_array = equi_join(m1, R, m2, S)
+# stop_timer(200)
+
+
+
+# start_timer(201)
+# m3 = Matrix(R*S,2,sint)
+
+# @for_range_opt(R*S)
+# def _(i):
+#     m3[i][0] = inter_array[i][1] #key pid
+#     m3[i][1] = inter_array[i][3] #value
+# stop_timer(201)
+
+# start_timer(300)
+# size2, inter_array2 = equi_join(m3, R*S, m1, R)
+# stop_timer(300)
+
+############################################1st normal join
+
+
+# start_timer(100)
+# noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+# stop_timer(100)
+
+# start_timer(201)
+# r1 = sfix.get_random(0.1,R*S)
+# r2 = sfix.get_random(0.1,R*S)
+# r3 = sfix.get_random(0.1,R*S)
+# intermediate_array = equi_join_withnoise(m1,R,m2,S,noise,r1,r2,r3)
+# stop_timer(201)
+
+
+#./compile.py -l -R 128 -b 10000000 -X onejoin
+
+##################################Shrinkwrap 2 Join
+
+
+# start_timer(200)
+# size, inter_array = equi_join(m1, R, m2, S)
+# stop_timer(200)
+
+
+# start_timer(300)
+# inter_array.sort(batcher=False)
+# stop_timer(300)
+
+
+# percentage = 0.01
+
+# print_ln("percentage is:%s",percentage)
+
+# resize = int(R*S*percentage)
+
+# start_timer(201)
+# m3 = Matrix(resize,2,sint)
+
+# @for_range_opt(resize)
+# def _(i):
+#     m3[i][0] = inter_array[i][1] #key pid
+#     m3[i][1] = inter_array[i][3] #value
+# stop_timer(201)
+
+# start_timer(400)
+# size2, inter_array2 = equi_join(m3, resize, m1, R)
+# stop_timer(400)
+
+#################################### Fuzzywrap 2 Join
+
+
+# start_timer(100)
+# noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+# stop_timer(100)
+
+# start_timer(201)
+# r1 = sfix.get_random(0.1,R*S)
+# r2 = sfix.get_random(0.1,R*S)
+# r3 = sfix.get_random(0.1,R*S)
+# inter_array = equi_join_withnoise(m1,R,m2,S,noise,r1,r2,r3)
+# stop_timer(201)
+
+# #print_ln("aarr is:%s",inter_array.reveal())
+
+# start_timer(202)
+# inter_array.secure_shuffle()
+# stop_timer(202)
+# #print_ln("aarr_shuffle is:%s",inter_array.reveal())
+
+
+# percentage = 0.01
+
+# print_ln("percentage is:%s",percentage)
+
+# resize = int(R*S*percentage)
+
+# start_timer(300)
+# m3 = Matrix(resize,2,sint)
+
+# @for_range_opt(resize)
+# def _(i):
+#     m3[i][0] = inter_array[i][1] #key pid
+#     m3[i][1] = inter_array[i][3] #value
+# stop_timer(300)
+
+# start_timer(301)
+# size2, inter_array2 = equi_join(m3, resize, m1, R)
+# stop_timer(301)
+
+
+######################################### Fuzzywrap 2 join new coin and no coin
+
+# start_timer(100)
+# noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+# stop_timer(100)
+
+# start_timer(201)
+# r1 = sfix.get_random(0.1,R*S)
+# r2 = sfix.get_random(0.1,R*S)
+# r3 = sfix.get_random(0.1,R*S)
+# inter_array = equi_join_withnoise_nocoin(m1,R,m2,S,noise)
+# #inter_array = equi_join_withnoise_new_coin(m1, R, m2, S, noise, r1, r2, r3)#t1, table_size1, t2, table_size2, noise,r1,r2,r3
+
+# stop_timer(201)
+
+# #print_ln("aarr is:%s",inter_array.reveal())
+
+# start_timer(202)
+# inter_array.secure_shuffle()
+# stop_timer(202)
+# #print_ln("aarr_shuffle is:%s",inter_array.reveal())
+
+
+# percentage = 0.01
+
+# print_ln("percentage is:%s",percentage)
+
+# resize = int(R*S*percentage)
+
+# start_timer(300)
+# m3 = Matrix(resize,2,sint)
+
+# @for_range_opt(resize)
+# def _(i):
+#     m3[i][0] = inter_array[i][1] #key pid
+#     m3[i][1] = inter_array[i][3] #value
+# stop_timer(300)
+
+# start_timer(301)
+# size2, inter_array2 = equi_join(m3, resize, m1, R)
+# stop_timer(301)
+
+
+################################################################# resizer op
+
+
+# y = n
+# truematches = int(y*0.1)
+# noiseamount = int(y*0.1)
+# threshold = int(noiseamount / (y-truematches) * bigvalue)
+
+# start_timer(666)
+# resizer_operator(m1,x, y, truematches, noiseamount, 0, threshold)
+# stop_timer(666)
+
+# start_timer(777)
+# resizer_operator(m1,x, y, truematches, noiseamount, 1, threshold)
+# stop_timer(777)
+
+
+# start_timer(888)
+# m1.sort()
+# #reveal_copy(n, int(n*0.2), m1)
+# stop_timer(888)
+####################################################################### FOJOIN + resizer + filter/order by
+
+
+
+
+# start_timer(100)
+# noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+# stop_timer(100)
+
+# start_timer(555)
+# r1 = sfix.get_random(0.1,n*n)
+# r2 = sfix.get_random(0.1,n*n)
+# r3 = sfix.get_random(0.1,n*n)
+# threshold, intermediate_array = equi_join_newhalfcoin(m1,n,m2,n,noise,r1,r2,r3)
+# stop_timer(555)
+
+
+# start_timer(666)
+# truematches = int(n*n*0.1)
+# noiseamount = int(n*n*0.1)
+# out_r = resizer_operator(intermediate_array, 6, n*n, truematches, noiseamount, 0, threshold)
+# stop_timer(666)
+
+
+# # start_timer(777)
+# # keyword = sint(33425)
+# print_ln("intermediate size is:%s",truematches+noiseamount)
+# # filter(out_r,truematches+noiseamount,1, keyword)
+# # stop_timer(777)
+
+# start_timer(888)
+# out_r.sort()
+# stop_timer(888)
+
+
+####################################################################### parallel resizer
+
+y = n
+truematches = int(y*0.1)
+noiseamount = int(y*0.1)
+threshold = int(noiseamount / (y-truematches) * bigvalue)
+
+start_timer(666)
+resizer_operator(m1,x, y, truematches, noiseamount, 0, threshold)
+stop_timer(666)
+
+
+start_timer(777)
+resizer_operator_updated(m1,x,y,truematches,noiseamount,0,threshold,rlist0,rlist1,rlist2)
+stop_timer(777)

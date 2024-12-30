@@ -1,0 +1,87 @@
+from util import if_else
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+distinct_count = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,5,sint)
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0]==t2[j][0]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+    count.write(0)
+    return intermediate_size, intermediate_array
+
+
+#     return resultarray
+
+def distinct(t_input_sorted,tsize):
+    
+    resultarray = Array(tsize,sint)
+
+    resultarray[0] = t_input_sorted[0][2]
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] != t_input_sorted[i+1][0]
+        temp = eqb.bit_and(t_input_sorted[i+1][2])
+        resultarray[i+1] = (temp == 1).if_else(sint(1),sint(0))
+    return resultarray
+
+
+
+n = 1000
+print_ln("n is:%s",n)
+
+m1 = Matrix(n,2,sint)
+m2 = Matrix(n,2,sint)
+
+
+@for_range_opt(n)
+def _(i):
+    m1[i][0] = sint.get_input_from(0) #key pid
+    m1[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(n)
+def _(i):
+    m2[i][0] = sint.get_input_from(1) #key pid
+    m2[i][1] = sint.get_input_from(1) #value
+
+
+start_timer(110)
+intermediate_size, intermediate_array = equi_join(m1,n,m2,n)
+stop_timer(110)
+
+
+start_timer(109)
+intermediate_array.sort()
+stop_timer(109)
+
+
+
+    
+start_timer(111)
+r = distinct(intermediate_array,n)
+stop_timer(111)
+
+
+
+
+

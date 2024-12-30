@@ -1,0 +1,85 @@
+from util import if_else
+import random
+import numpy as np
+import mpc_math
+import math
+from oram import OptimalORAM
+
+
+offset = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+count = MemValue(0)
+
+
+def group_by_withoutoram(t_input_sorted,tsize):
+    agg = Array(tsize,sint)
+    agg_m = Array(tsize,sint)
+    agg[0] = t_input_sorted[0][1]
+    agg_m[0] = sint(1)
+
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] == t_input_sorted[i+1][0]
+        #print_ln("agg1i[%s] is: %s",i,agg[i].reveal())
+        #print_ln("t_input_sorted[%s] is: %s",i+1,t_input_sorted[i+1][1].reveal())
+        temp = agg[i] + t_input_sorted[i+1][1]
+        #print_ln("temp is: %s",temp.reveal())
+        agg_m[i] = (eqb == 1).if_else(sint(0),sint(1))
+        agg[i+1] = (eqb == 1).if_else(temp,t_input_sorted[i+1][1])
+        #print_ln("agg2[%s] is: %s",i+1,agg[i+1].reveal())
+    agg_m[tsize-1] = sint(1)
+
+    return agg, agg_m
+
+
+n = 100
+t1 = Array(n,sint)
+diagnose = Matrix(n,2,sint)
+
+print_ln("n is:%s",n)
+
+@for_range_opt(n)
+def _(i):
+    diagnose[i][0] = sint.get_input_from(2)
+
+
+@for_range_opt(n)
+def _(i):
+    diagnose[i][1] = sint.get_input_from(2)
+    #print_ln("diagnose is:[%s] [%s]",diagnose[i][0].reveal(),diagnose[i][1].reveal())
+
+
+
+start_timer(109)
+diagnose.sort()
+stop_timer(109)
+
+
+#@for_range_opt(20)
+#def _(i):
+#    print_ln("input matrix is:[%s] [%s]",diagnose[i][0].reveal(),diagnose[i][1].reveal())
+
+
+start_timer(110)
+r,r_m = group_by_withoutoram(diagnose,n)
+stop_timer(110)
+
+gba = Array(n,sint)
+
+start_timer(112)
+@for_range_opt(n)
+def _(i):
+    gba[i] = r[i]
+stop_timer(112)
+
+
+start_timer(111)
+gba.sort()
+stop_timer(111)
+
+
+@for_range_opt(10)
+def _(i):
+    print_ln("group by[%s] is:%s, matched is:%s",diagnose[i][0].reveal(),r[i].reveal(),r_m[i].reveal())
+

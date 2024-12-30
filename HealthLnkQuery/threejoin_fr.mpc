@@ -1,0 +1,101 @@
+from util import if_else
+import random
+import numpy as np
+
+program.use_trunc_pr = True
+sfix.set_precision(4, 32)
+program.use_split(3)
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+
+
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,5,sint)
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0]==t2[j][0]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+    count.write(0)
+    return intermediate_size, intermediate_array
+
+
+def filter(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,3,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    return intermediate_result
+
+
+n = 1000
+print_ln("n is: %s", n)
+percentage = 0.01
+
+
+
+m1 = Matrix(n,2,sint)
+m2 = Matrix(n,2,sint)
+m3 = Matrix(n,2,sint)
+
+
+@for_range_opt(n)
+def _(i):
+    m1[i][0] = sint.get_input_from(0) #key pid
+    m1[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(n)
+def _(i):
+    m2[i][0] = sint.get_input_from(1) #key pid
+    m2[i][1] = sint.get_input_from(1) #value
+
+@for_range_opt(n)
+def _(i):
+    m3[i][0] = sint.get_input_from(2) #key pid
+    m3[i][1] = sint.get_input_from(2) #value
+
+
+
+
+start_timer(200)
+keyword = sint(33425)
+filtered_table = filter(m1,n,1,keyword)
+stop_timer(200)
+
+
+
+start_timer(110)
+intermediate_size, intermediate_array = equi_join(m1,int(n*percentage),m2,int(n*percentage))
+stop_timer(110)
+
+
+
+start_timer(112)
+intermediate_size2, intermediate_array2 = equi_join(m2, int(n*percentage) , m3, int(n*percentage))
+stop_timer(112)
+
+
+start_timer(113)
+intermediate_size3, intermediate_array3 = equi_join(m1, int(n*percentage) , m3, int(n*percentage))
+stop_timer(113)

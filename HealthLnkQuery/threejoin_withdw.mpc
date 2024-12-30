@@ -1,0 +1,230 @@
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+program.use_split(3)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+
+
+def noise_count_branch(bit, value):
+    value = (bit == 1).if_else(value+sint(1),value)
+
+    return value
+
+
+def generate_random_bit(ran_length):
+    #r1 = sint.Array(ran_length)
+    #r2 = sint.Array(ran_length)
+    #r3 = sint.Array(ran_length)
+    result = sint.Array(ran_length)
+
+    @for_range_opt(ran_length)
+    def _(i):
+        #r1[i] = sint(np.random.randint(2))
+        #r2[i] = sint(np.random.randint(2))
+        #r3[i] = sint(np.random.randint(2))
+        #result[i] = r1[i].bit_xor(r2[i]).bit_xor(r3[i])
+
+        v = np.random.randint(65535)
+        print_ln("v is:%s",v)
+        result[i] = sint(v%2)
+
+        #print_ln("random bit is:%s", result[i].reveal())
+    return result
+
+
+def generate_random_coin_with_probability(noise,ran_length):
+    result = sint.Array(ran_length)
+    @for_range_opt(ran_length)
+    def _(i):
+        v = sint(np.random.randint(65535)%ran_length)
+        #print_ln("random v is:%s", v.reveal())
+        result[i] = (v<=noise).if_else(sint(1),sint(0))
+
+        #print_ln("random bit is:%s", result[i].reveal())
+
+    return result
+
+def generate_laplace(sensitivity,epsilon):
+    beta = sensitivity / epsilon
+    r1 = sfix(np.random.random())
+    r2 = np.random.random()
+    r3 = np.random.random()
+    rr1 = 1 - sfix((r2+r3)*10%10/10)
+    rr2 = sfix((r2+r3)*10%10/10)
+    value = 0
+    value1 = -beta * mpc_math.log_fx(rr1,math.e)
+    value2 = beta * mpc_math.log_fx(rr2,math.e)
+
+    value = (r1 <= 0.5).if_else(value1,value2)
+    print_ln("original noise is: %s", value.reveal())
+
+    return value
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,3,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i]==t2[j]
+            
+            #intermediate_array[count][0] = if_else(match,sint(1),sint(0))
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i] 
+            intermediate_array[count][2] = t2[j] 
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+
+def equi_join_add_noise(t1, table_size1, t2, table_size2, noise, coin_seq):
+    intermediate_array = Matrix(table_size1*table_size2,3,sint)
+
+    print_ln("noise is %s",noise.reveal())
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            temp = 0
+            match = t1[i]==t2[j]
+            flagN = noise >= noise_count
+            fMatch = flagN.bit_and(coin_seq[count])
+            match2 = (match == 1).if_else(sint(1),fMatch)
+
+            Match = match == 0
+            Ncount = fMatch == 1 
+            NcountBit = Match.bit_and(Ncount) == 1
+
+            value1 = noise_count+1
+            value2 = noise_count
+
+            temp = (NcountBit == 1).if_else(value1,value2)
+            noise_count.write(temp)
+
+            intermediate_size.iadd(match2)
+            intermediate_array[count][0] = match2
+            intermediate_array[count][1] = t1[i] 
+            intermediate_array[count][2] = t2[j] 
+            count.write(count+1)
+
+    count.write(0)
+    noise_count.write(sint(0))
+    return intermediate_size, intermediate_array
+
+n = 100
+
+p = 100
+
+
+
+print_ln("n is:%s",n)
+print_ln("percentage is: %s%",p)
+t1 = Array(n,sint)
+t2 = Array(n,sint)
+t3 = Array(n,sint)
+t4 = Array(n,sint)
+
+
+@for_range_opt(n)
+def _(i):
+    t1[i]= sint.get_input_from(0)
+
+@for_range_opt(n)
+def _(i):
+    t2[i] = sint.get_input_from(1)
+
+@for_range_opt(n)
+def _(i):
+    t3[i] = sint.get_input_from(2)
+
+@for_range_opt(n)
+def _(i):
+    t4[i] = sint.get_input_from(2)
+
+
+start_timer(130)
+noise = abs(generate_laplace(n,0.5))
+stop_timer(130)
+
+
+start_timer(131)
+coin_seq = generate_random_coin_with_probability(noise,n*n)
+stop_timer(131)
+
+
+start_timer(110)
+intermediate_size, intermediate_array = equi_join_add_noise(t1,n,t2,n, noise,coin_seq)
+stop_timer(110)
+
+
+
+start_timer(112)
+
+@for_range_opt(n*n)
+def _(i):
+    intermediate_array[i][0].reveal()
+    #next_array_[i] = (intermediate_array[i][0] == 1 ).if_else(intermediate_array[i][1],sint(0))
+    
+stop_timer(112)
+
+
+
+
+next_array = Array(int(n/100*p),sint)
+@for_range_opt(int(n/100*p))
+def _(i):
+    next_array[i] = intermediate_array[i][1]
+
+
+noise2 = abs(generate_laplace(int(n/100*p),0.5))
+coin_seq2 = generate_random_coin_with_probability(noise2,int(n/100*p)*n)
+
+
+intermediate_size2, intermediate_array2 = equi_join_add_noise(next_array, int(n/100*p), t3, n,noise2,coin_seq2)
+
+
+start_timer(140)
+
+@for_range_opt(int(n/100*p)*n)
+def _(i):
+    #print_ln('intermediate array is:[%s]\n',intermediate_array[i][0].reveal())
+    intermediate_array2[i][0].reveal()
+    #next_array2_[i] = (intermediate_array2[i][0] == 1 ).if_else(intermediate_array2[i][1],sint(0))
+
+stop_timer(140)
+
+
+
+start_timer(141)
+next_array2 = Array(int(n/100*p),sint)
+@for_range_opt(int(n/100*p))
+def _(i):
+    next_array2[i] = intermediate_array2[i][1]
+
+
+
+noise3 = abs(generate_laplace(int(n/100*p),0.5))
+coin_seq3 = generate_random_coin_with_probability(noise3,int(n/100*p)*n)
+
+
+intermediate_size3, intermediate_array3 = equi_join_add_noise(next_array2, int(n/100*p), t4, n,noise3,coin_seq3)
+stop_timer(141)
+
+
+

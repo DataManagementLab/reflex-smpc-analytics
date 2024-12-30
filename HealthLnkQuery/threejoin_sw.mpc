@@ -1,0 +1,102 @@
+from util import if_else
+import random
+import numpy as np
+import mpc_math
+import math
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,3,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i]==t2[j]
+            
+            #intermediate_array[count][0] = if_else(match,sint(1),sint(0))
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i] 
+            intermediate_array[count][2] = t2[j] 
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+
+
+n = 1000
+print_ln("n is: %s", n)
+
+t1 = Array(n,sint)
+t2 = Array(n,sint)
+t3 = Array(n,sint)
+
+
+@for_range_opt(n)
+def _(i):
+    t1[i]= sint.get_input_from(0)
+
+@for_range_opt(n)
+def _(i):
+    t2[i] = sint.get_input_from(1)
+
+@for_range_opt(n)
+def _(i):
+    t3[i] = sint.get_input_from(2)
+
+
+start_timer(110)
+intermediate_size, intermediate_array = equi_join(t1,n,t2,n)
+stop_timer(110)
+
+
+start_timer(140)
+t12 = Array(n*n,sint)
+@for_range_opt(n*n)
+def _(i):
+    t12[i] = intermediate_array[i][1]
+stop_timer(140)
+
+start_timer(141)
+t12.sort()
+t12_resize = Array(n,sint)
+@for_range_opt(n)
+def _(i):
+    t12_resize[i] = t12[i]
+stop_timer(141)
+
+
+start_timer(112)
+intermediate_size2, intermediate_array2 = equi_join(t12_resize, n , t3, n)
+stop_timer(112)
+
+start_timer(114)
+t23 = Array(n*n,sint)
+@for_range_opt(n*n)
+def _(i):
+    t23[i] = intermediate_array2[i][1]
+stop_timer(114)
+
+
+start_timer(142)
+t23.sort()
+t23_resize = Array(n,sint)
+@for_range_opt(n)
+def _(i):
+    t23_resize[i] = t23[i]
+stop_timer(142)
+
+start_timer(113)
+intermediate_size3, intermediate_array3 = equi_join(t23_resize, n , t3, n)
+stop_timer(113)

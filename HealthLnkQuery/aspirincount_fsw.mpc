@@ -1,0 +1,146 @@
+from util import if_else
+
+program.use_trunc_pr = True
+program.use_split(3)
+sfix.set_precision(4,32)
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+distinct_c = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+
+
+def distinct_count(t_input_sorted,tsize):
+    
+    resultarray = Array(tsize,sint)
+
+    resultarray[0] = t_input_sorted[0][2]
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] != t_input_sorted[i+1][0]
+        temp = eqb.bit_and(t_input_sorted[i+1][2])
+        resultarray[i+1] = (temp == 1).if_else(sint(1),sint(0))
+        distinct_c.iadd(resultarray[i+1])
+    return distinct_c
+
+def equi_join_smallerthan(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,5,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]
+            match2 = t1[i][1] <= t2[j][1]
+
+            fmatch = match.bit_and(match2)
+
+            intermediate_size.iadd(fmatch)
+            intermediate_array[count][0] = fmatch
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+def filter(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,3,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    
+    return intermediate_result
+
+n = 1000
+percentage = 0.1
+
+print_ln("n is:%s",n)
+
+m1 = Matrix(n,2,sint)
+m2 = Matrix(n,2,sint)
+
+
+
+@for_range_opt(n)
+def _(i):
+    m1[i][0] = sint.get_input_from(0) #key
+    m1[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(n)
+def _(i):
+    m2[i][0] = sint.get_input_from(1) #key
+    m2[i][1] = sint.get_input_from(1) #value
+
+
+
+start_timer(200)
+keyword = sint(33425)
+filtered_table = filter(m1,n,1,keyword)
+stop_timer(200)
+
+
+
+start_timer(300)
+m1.sort()
+stop_timer(300)
+
+
+
+
+start_timer(110)
+intermediate_size, intermediate_array = equi_join_smallerthan(m1,int(n*percentage),m2,int(n*percentage))
+stop_timer(110)
+
+start_timer(120)
+intermediate_array.sort()
+stop_timer(120)
+
+
+start_timer(140)
+sortM = Matrix(int(n*n*percentage*percentage),4,sint)
+@for_range_opt(int(n*n*percentage*percentage))
+def _(i):
+    #sortM[i][0] = intermediate_array[i][1]
+    sortM[i][0] = intermediate_array[i][0] + intermediate_array[i][1]*10
+    sortM[i][1] = intermediate_array[i][3]
+    sortM[i][2] = intermediate_array[i][0]
+    sortM[i][3] = intermediate_array[i][1]
+stop_timer(140)
+
+
+start_timer(101)
+sortM.sort()
+stop_timer(101)
+
+#@for_range_opt(n*n)
+#def _(i):
+#    print_ln("matrix is: %s %s %s",sortM[i][0].reveal(),sortM[i][1].reveal(),sortM[i][2].reveal())
+
+
+start_timer(111)
+r = distinct_count(sortM,int(n*n*percentage*percentage*percentage))
+stop_timer(111)
+
+
+
+
+
+
+#@for_range_opt(10)
+#def _(i):
+#    print_ln("sortM array is:%s %s %s %s, r is:%s",sortM[i][1].reveal(),sortM[i][3].reveal(),sortM[i][4].reveal(),sortM[i][5].reveal(),r[i].reveal())
+

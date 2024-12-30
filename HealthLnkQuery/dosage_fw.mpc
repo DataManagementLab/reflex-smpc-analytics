@@ -1,0 +1,174 @@
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+program.use_split(3)
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+distinct_count = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+
+
+def flip_coin_online(noise,true_matches,table_size, r1 , r2 , r3):
+    v = (r1 + r2 + r3 ) / 3  
+    result = (v<=noise+true_matches*noise/table_size).if_else(sint(1),sint(0))
+    
+    return result
+
+def generate_truncated_laplace(sensitivity,epsilon,delta):
+    eoversen = epsilon/sensitivity
+    p = (np.exp(eoversen) - 1) / (np.exp(eoversen) + 1)
+    noise0 = sfix(-sensitivity * np.log((np.exp(eoversen) + 1) * delta) / epsilon + sensitivity)
+    r1 = sfix.get_random(0.0001,1)
+    r2 = sfix.get_random(0.0001,1)
+    r3 = sfix.get_random(0.0001,1)
+
+    u = (r1 + r2 + r3 ) / 3 
+    #print_ln("noise0 is:%s",noise0)
+    senovere = sensitivity / epsilon
+    ptsen = p * sensitivity
+    v1 = noise0 + senovere * mpc_math.log_fx(((epsilon*u)/ptsen), math.e)
+    v2 = noise0 - senovere * mpc_math.log_fx(((epsilon*(1-u))/ptsen), math.e)
+
+    v = (u <= 0.5).if_else(v1,v2)
+    print_ln("original noise is: %s", v.reveal())
+    return v
+
+
+
+def equi_join_withnoise(t1, table_size1, t2, table_size2, noise,r1,r2,r3):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]
+            match2 = t1[i][1] == t2[j][1] #match conditions
+
+            truematch = match.bit_and(match2)
+            intermediate_size.iadd(truematch)
+            intermediate_array[count][5] = truematch
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+    count.write(0)
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            coin  = flip_coin_online(noise,intermediate_size,table_size1,r1,r2,r3)
+            fuzzyv = (intermediate_array[count][5] == 1).if_else(sint(1),coin)
+            intermediate_array[count][0] = fuzzyv
+            count.write(count+1)
+    count.write(0)
+
+    return intermediate_array
+
+
+
+def distinct(t_input_sorted,tsize):
+    
+    resultarray = Array(tsize,sint)
+
+    resultarray[0] = t_input_sorted[0][2]
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] != t_input_sorted[i+1][0]
+        temp = eqb.bit_and(t_input_sorted[i+1][2])
+        resultarray[i+1] = (temp == 1).if_else(sint(1),sint(0))
+    return resultarray
+
+# def distinct(t_input_sorted,tsize):
+#     disMatrix = Matrix(tsize,2,sint)
+#     resultarray = Array(tsize,sint)
+
+#     resultarray[0] = sint(1).bit_and(disMatrix[0][1])
+
+#     @for_range_opt(tsize-1)
+#     def _(i):
+#         eqb = t_input_sorted[i][0] == t_input_sorted[i+1][0]
+#         disbit = (eqb == 1).if_else(sint(0),sint(1))
+#         resultarray[i+1] = disbit.bit_and(disMatrix[i+1][1])
+
+
+#     return resultarray
+
+
+######################################
+n = 1000 #table_size
+L = 0.03
+sensitivity = max(1,L*n)
+epsilon = 0.5
+delta = 0.00005
+true_matches = int(0.1*n)
+
+print_ln("n is:%s",n)
+
+m1 = Matrix(n,2,sint)
+m2 = Matrix(n,2,sint)
+
+
+@for_range_opt(n)
+def _(i):
+    m1[i][0] = sint.get_input_from(0) #key pid
+    m1[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(n)
+def _(i):
+    m2[i][0] = sint.get_input_from(1) #key pid
+    m2[i][1] = sint.get_input_from(1) #value
+
+
+
+start_timer(100)
+noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+stop_timer(100)
+
+
+start_timer(110)
+r1 = sfix.get_random(0.1,n)
+r2 = sfix.get_random(0.1,n)
+r3 = sfix.get_random(0.1,n)
+intermediate_array = equi_join_withnoise(m1,n,m2,n,noise,r1,r2,r3)
+stop_timer(110)
+
+start_timer(140)
+@for_range_opt(n*n)
+def _(i):
+    intermediate_array[i][0].reveal()
+
+sortM = Matrix(int(n/10),6,sint)
+@for_range_opt(int(n/10))
+def _(i):
+    #sortM[i][0] = intermediate_array[i][1]
+    sortM[i][0] = intermediate_array[i][0] + intermediate_array[i][1]*10
+    sortM[i][1] = intermediate_array[i][3]
+    sortM[i][2] = intermediate_array[i][0]
+    sortM[i][3] = intermediate_array[i][1]
+stop_timer(140)
+
+start_timer(101)
+sortM.sort()
+stop_timer(101)
+
+
+start_timer(111)
+r = distinct(sortM,int(n/10))
+stop_timer(111)
+
+
+
+
+
+

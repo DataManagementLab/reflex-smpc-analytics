@@ -1,0 +1,253 @@
+from util import if_else
+import random
+import numpy as np
+import mpc_math
+import math
+
+program.bit_length = 64
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+distinct_count = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+
+
+def sort_on_key(minput,msize,colnum):
+    if colnum == 0:
+        return minput
+    else:
+        @for_range_opt(msize)
+        def _(i):
+            temp = minput[i][0]
+            minput[i][0] = minput[i][colnum]
+            minput[i][colnum] = temp
+        
+        return minput
+
+def MtoA(matrix_input,msize):
+    result = Array(msize,sint)
+    @for_range_opt(msize)
+    def _(i):
+        result[i] = matrix_input[i][0]
+        #result[i] = sint(0)
+    return result
+
+
+
+
+def noise_count_branch(bit, value):
+    value = (bit == 1).if_else(value+sint(1),value)
+
+    return value
+
+
+def generate_random_bit(ran_length):
+    #r1 = sint.Array(ran_length)
+    #r2 = sint.Array(ran_length)
+    #r3 = sint.Array(ran_length)
+    result = sint.Array(ran_length)
+
+    @for_range_opt(ran_length)
+    def _(i):
+        #r1[i] = sint(np.random.randint(2))
+        #r2[i] = sint(np.random.randint(2))
+        #r3[i] = sint(np.random.randint(2))
+        #result[i] = r1[i].bit_xor(r2[i]).bit_xor(r3[i])
+
+        v = np.random.randint(65535)
+        print_ln("v is:%s",v)
+        result[i] = sint(v%2)
+
+    return result
+
+
+def generate_random_coin_with_probability(noise,ran_length):
+    result = sint.Array(ran_length)
+    @for_range_opt(ran_length)
+    def _(i):
+        v = sint(np.random.randint(65535)%ran_length)
+        #print_ln("random v is:%s", v.reveal())
+        result[i] = (v<=noise).if_else(sint(1),sint(0))
+
+        #print_ln("random bit is:%s", result[i].reveal())
+
+    return result
+
+def generate_laplace(sensitivity,epsilon):
+    beta = sensitivity / epsilon
+    r1 = sfix(np.random.random())
+    r2 = np.random.random()
+    r3 = np.random.random()
+    rr1 = 1 - sfix((r2+r3)*10%10/10)
+    rr2 = sfix((r2+r3)*10%10/10)
+    value = 0
+    value1 = -beta * mpc_math.log_fx(rr1,math.e)
+    value2 = beta * mpc_math.log_fx(rr2,math.e)
+
+    value = (r1 <= 0.5).if_else(value1,value2)
+    print_ln("original noise is: %s", value.reveal())
+
+    return value*2
+
+
+def equi_join_add_noise(t1, table_size1, t2, table_size2, noise, coin_seq):
+    intermediate_array = Matrix(table_size1*table_size2,3,sint)
+
+    #noise = abs(generate_laplace(sensitivity,epsilon))
+    print_ln("noise is %s",noise.reveal())
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            temp = 0
+            match = t1[i]==t2[j]
+            flagN = noise >= noise_count
+            #print_ln("t1 is:%s, t2 is:%s, the match is:%s",t1[i].reveal(),t2[j].reveal(),match.reveal())
+            #print_ln("coin is:%s",coin_seq[count].reveal())
+
+            fMatch = flagN.bit_and(coin_seq[count])
+
+            #print_ln("the fMatch is:%s",fMatch.reveal())
+           
+            match2 = (match == 1).if_else(sint(1),fMatch)
+
+            #print_ln("the match2 is:%s",match2.reveal())
+
+            Match = match == 0
+            Ncount = fMatch == 1 
+            NcountBit = Match.bit_and(Ncount) == 1
+            #print_ln("NcountBit is:%s",NcountBit.reveal())
+
+            value1 = noise_count+1
+            value2 = noise_count
+
+            temp = (NcountBit == 1).if_else(value1,value2)
+            noise_count.write(temp)
+
+            #print_ln("noise count is:%s",noise_count.reveal())
+
+            intermediate_size.iadd(match2)
+            intermediate_array[count][0] = match2
+            intermediate_array[count][1] = t1[i] 
+            intermediate_array[count][2] = t2[j] 
+            count.write(count+1)
+
+            #print_ln("noise Flag is:%s",flagN.reveal())
+            
+            #print_ln("count is:%s\n",count)
+    #count.write(0)
+    return intermediate_size, intermediate_array
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,3,sint)
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            temp = 0
+            match = t1[i]==t2[j]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i] 
+            intermediate_array[count][2] = t2[j] 
+            count.write(count+1)
+    #count.write(0)
+    return intermediate_size, intermediate_array
+
+
+
+def distinct(t_input_sorted,tsize):
+    disMatrix = Matrix(tsize,2,sint)
+    resultarray = Array(tsize,sint)
+
+    @for_range_opt(tsize)
+    def _(i):
+        disMatrix[i][0] = t_input_sorted[i][1]*10+t_input_sorted[i][0]
+        disMatrix[i][1] = t_input_sorted[i][0]
+        
+    disMatrix.sort()
+
+    @for_range_opt(tsize)
+    def _(i):
+        print_ln("disMatrix[%s] is: merged[%s],selbit[%s]",i,disMatrix[i][0].reveal(),disMatrix[i][1].reveal())
+
+    resultarray[0] = sint(1).bit_and(disMatrix[0][1])
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = disMatrix[i][0] == disMatrix[i+1][0]
+        disbit = (eqb == 1).if_else(sint(0),sint(1))
+        resultarray[i+1] = disbit.bit_and(disMatrix[i+1][1])
+
+
+    return resultarray
+
+
+
+
+n = 100
+t1 = Array(n,sint)
+t2 = Array(n,sint)
+
+
+diagnose = Matrix(n,4,sint)
+medication = Matrix(n,4,sint)
+
+@for_range_opt(n)
+def _(i):
+    diagnose[i][0]= sint.get_input_from(0)
+    t1[i] = diagnose[i][0]
+
+@for_range_opt(n)
+def _(i):
+    medication[i][0] = sint.get_input_from(1)
+    t2[i] = medication[i][0]
+
+
+
+start_timer(110)
+#intermediate_size, intermediate_array = equi_join_add_noise(t1,n,t2,n, noise,coin_seq)
+intermediate_size, intermediate_array = equi_join(t1,n,t2,n)
+stop_timer(110)
+
+
+
+#nextarray = Array(n,sint)
+#nextarray = MtoA(intermediate_array.sort(),n)
+
+
+
+
+
+#intermediate_array = sort_on_key(intermediate_array,n*n,1)
+#intermediate_array.sort()
+
+
+start_timer(109)
+intermediate_array.sort()
+stop_timer(109)
+
+
+#@for_range_opt(n*n)
+#def _(i):
+    #print_ln("c[%s] is:%s",i,intermediate_array[i][0].reveal())
+    #print_ln("intermediate_array is:%s == %s",intermediate_array[i][1].reveal(),intermediate_array[i][2].reveal())
+    
+start_timer(111)
+r = distinct(intermediate_array,n)
+stop_timer(111)
+
+
+#@for_range_opt(n*n)
+#def _(i):
+#    print_ln("distinct r[%s] is:%s",i,r[i].reveal())
+
+
+

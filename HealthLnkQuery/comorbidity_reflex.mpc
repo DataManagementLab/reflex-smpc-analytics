@@ -1,0 +1,109 @@
+from util import if_else
+import numpy as np
+
+sfix.set_precision(4, 32)
+program.use_trunc_pr = True
+program.use_split(3)
+
+offset = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+true_matches = MemValue(sint(0))
+count = MemValue(0)
+bigvalue = 100000
+
+def resizer_operator_parallel(inputtable, inputsizex, inputsizey, truematches, noise, threshold, rlist0,rlist1,rlist2):#inputtable_index0 is c1
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    @for_range_opt(inputsizey)
+    def _(i):
+        coin  = flip_coin_new(threshold, sum_online(rlist0[i],rlist1[i],rlist2[i]))
+        fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+        output[i][inputsizex] = fuzzyv
+
+    output.secure_shuffle()
+    outm = reveal_copy(inputsizey,truematches+noise,output)
+
+    return outm
+
+def sum_online(r1,r2,r3):
+    return r1+r2+r3
+
+def reveal_copy(input_size, output_size, inputmatrix):
+    resultm = Matrix(output_size,6,sint)
+    @for_range_opt(input_size)
+    def _(i):
+        inputmatrix[i][0].reveal()
+
+    @for_range_opt(output_size)
+    def _(i):
+        resultm = inputmatrix[i][0]
+
+
+    return resultm
+
+def compute_threshold_three_servers(noise, true_matches,table_size, numberOfservers):
+    return int(noise/(table_size-true_matches)*bigvalue*numberOfservers)
+
+def flip_coin_new(threshold, c1i):
+    result = (c1i<=threshold).if_else(sint(1),sint(0))
+    return result
+
+def group_by_reflex(t_input_sorted,tsize):
+    agg = Array(tsize,sint)
+    agg_m = Matrix(tsize, 2, sint)
+    agg[0] = t_input_sorted[0][1]
+    agg_m[0][0] = sint(1)
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] == t_input_sorted[i+1][0]
+        temp = agg[i] + t_input_sorted[i+1][1]
+        agg[i+1] = (eqb == 1).if_else(temp,t_input_sorted[i+1][1])
+        agg_m[i+1][0] = (eqb == 1).if_else(sint(0),sint(1))
+        true_matches.iadd(agg_m[i+1][0])
+    agg_m[tsize-1][0] = sint(1)
+    return agg, agg_m
+
+n = 1000
+x = 6
+t1 = Array(n,sint)
+diagnose = Matrix(n,2,sint)
+percentage = 0.1
+truematches = int(n*percentage)
+number_of_rand = 1000000
+
+
+print_ln("n is:%s",n)
+
+
+rlist0 = sint.Array(number_of_rand)
+rlist1 = sint.Array(number_of_rand)
+rlist2 = sint.Array(number_of_rand)
+
+@for_range_opt(n)
+def _(i):
+    diagnose[i][0] = sint.get_input_from(2)
+    diagnose[i][1] = sint.get_input_from(2)
+
+
+@for_range_opt(number_of_rand)
+def _(i):
+    rlist0[i] = sint.get_input_from(0)
+    rlist1[i] = sint.get_input_from(1)
+    rlist2[i] = sint.get_input_from(2)
+
+start_timer(109)
+diagnose.sort()
+stop_timer(109)
+
+
+start_timer(110)
+r,r_m = group_by_reflex(diagnose,n)
+noise = int(percentage*n)
+threshold = compute_threshold_three_servers(noise, truematches,n,3)
+intermediate_to_next = resizer_operator_parallel(r_m,x,n,truematches,noise,threshold,rlist0,rlist1,rlist2)
+stop_timer(110)
+
+
+
+start_timer(111)
+intermediate_to_next.sort()
+stop_timer(111)

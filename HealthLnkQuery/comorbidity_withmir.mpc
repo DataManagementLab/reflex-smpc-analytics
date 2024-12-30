@@ -1,0 +1,186 @@
+from util import if_else
+import random
+import numpy as np
+import mpc_math
+import math
+from oram import OptimalORAM
+
+program.bit_length = 64
+
+offset = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+true_car_runtime = MemValue(sint(0))
+count = MemValue(sint(0))
+
+
+
+
+def random_coin_seq_matrix(rows, columns):
+    rcoin_matrix = sint.Matrix(rows,columns)
+    count_array = Array(columns,sint)
+    @for_range_opt(columns)
+    def _(j):
+        @for_range_opt(rows)
+        def _(i):
+            threshold = generate_threshold(rows)
+            v = sint(np.random.randint(65535)%rows)
+            rcoin_matrix[i][j] = (v<= threshold).if_else(sint(1),sint(0))
+            noise_count.write(noise_count+1)
+        count_array[j] = noise_count
+        noise_count.write(0)
+
+    
+    return rcoin_matrix,count_array
+
+
+def random_coin_seq_matrix_with_Laplace(sensitivity, epsilon, rows, columns):
+    rcoin_matrix = sint.Matrix(rows,columns)
+    count_array = Array(rows,sint)
+    @for_range_opt(columns)
+    def _(i):
+        @for_range_opt(rows)
+        def _(j):
+            noise = generate_laplace(sensitivity,epsilon)
+            v = sint(np.random.randint(65535)%rows)
+            rcoin_matrix[i][j] = (v<= noise).if_else(sint(1),sint(0))
+            noise_count.write(noise_count+1)
+        count_array[j] = noise_count
+        noise_count.write(0)
+
+    
+    return rcoin_matrix,count_array
+
+
+def generate_threshold(rows):
+    return sint(int(1/100*rows))
+
+
+
+def generate_random_coin_with_probability(noise,ran_length):
+    result = sint.Array(ran_length)
+    @for_range_opt(ran_length)
+    def _(i):
+        v = sint(np.random.randint(65535)%ran_length)
+        #print_ln("random v is:%s", v.reveal())
+        result[i] = (v<=noise).if_else(sint(1),sint(0))
+
+        #print_ln("random bit is:%s", result[i].reveal())
+
+    return result
+
+def generate_laplace(sensitivity,epsilon):
+    beta = sensitivity / epsilon
+    r1 = sfix(np.random.random())
+    r2 = np.random.random()
+    r3 = np.random.random()
+    rr1 = 1 - sfix((r2+r3)*10%10/10)
+    rr2 = sfix((r2+r3)*10%10/10)
+    value = 0
+    value1 = -beta * mpc_math.log_fx(rr1,math.e)
+    value2 = beta * mpc_math.log_fx(rr2,math.e)
+
+    value = (r1 <= 0.5).if_else(value1,value2)
+    print_ln("original noise is: %s", value.reveal())
+
+    return value
+
+
+def group_by_withoutoram(t_input_sorted, tsize, noise_amount_list, coin_seq_matrix, columns):
+    agg = Array(tsize,sint)
+    noise_hit = Array(columns,sint)
+    group_o = Array(tsize,sint)
+    agg_m = sint.Matrix(tsize,columns)
+    agg[0] = t_input_sorted[0][1]
+    group_o[0] = sint(1)
+   
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] == t_input_sorted[i+1][0]
+        #print_ln("eqb is:%s",eqb.reveal())
+        temp = agg[i] + t_input_sorted[i+1][1]
+        agg[i+1] = (eqb == 1).if_else(temp,t_input_sorted[i+1][1])
+
+        group_o[i+1] = (eqb == 1).if_else(sint(0),sint(1))
+        #print_ln("group o is:%s",group_o[i+1].reveal())
+
+        v1 = true_car_runtime+1
+        v2 = true_car_runtime
+
+        
+        temp_ = (group_o[i+1] == 1).if_else(v1,v2)
+        true_car_runtime.write(temp_)
+        
+    group_o[0] = (group_o[1] == group_o[0]).if_else(sint(0),sint(1))
+    
+    @for_range_opt(columns)
+    def _(j):
+        agg_m[0][j] = sint(1)
+        #car_inter = true_car_runtime + noise_amount_list[j]
+        #print_ln("true vs noise is: %s vs %s",true_car_runtime.reveal(),noise_amount_list[j].reveal())
+        noise_hit[j] = (true_car_runtime > noise_amount_list[j]).if_else(sint(0),sint(1))
+        @for_range_opt(tsize-1)
+        def _(i):
+            agg_m[i+1][j] = (group_o[i+1] == 1).if_else(coin_seq_matrix[i+1][j],sint(1))
+        agg_m[tsize-1][j] = sint(1)
+
+    return agg, agg_m
+
+
+n = 1000
+t1 = Array(n,sint)
+diagnose = Matrix(n,2,sint)
+
+print_ln("n is:%s",n)
+
+@for_range_opt(n)
+def _(i):
+    diagnose[i][0] = sint.get_input_from(2)
+
+
+@for_range_opt(n)
+def _(i):
+    diagnose[i][1] = sint.get_input_from(2)
+    #print_ln("diagnose is:[%s] [%s]",diagnose[i][0].reveal(),diagnose[i][1].reveal())
+
+
+
+start_timer(109)
+diagnose.sort()
+stop_timer(109)
+
+
+
+sensitivity = 1
+epsilon = 0.5
+rows = n
+columns = 10
+
+start_timer(131)
+coin_seq, count_array = random_coin_seq_matrix(rows, columns)
+stop_timer(131)
+
+
+start_timer(110)
+r,r_m = group_by_withoutoram(diagnose, n, count_array, coin_seq, columns)
+stop_timer(110)
+
+percentage = 0.2
+
+gba = Array(int(n*percentage),sint)
+
+start_timer(112)
+@for_range_opt(int(n*percentage))
+def _(i):
+    gba[i] = r[i]
+stop_timer(112)
+
+
+start_timer(111)
+gba.sort()
+stop_timer(111)
+
+
+#@for_range_opt(10)
+#def _(i):
+#    print_ln("group by[%s] is:%s, matched is:%s",diagnose[i][0].reveal(),r[i].reveal(),r_m[i].reveal())
+
