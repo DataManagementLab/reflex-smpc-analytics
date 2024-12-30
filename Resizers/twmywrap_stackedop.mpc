@@ -72,12 +72,6 @@ def generate_r(r1,r2,r3):
     return (r1+r2+r3)/3
 
 
-# def flip_coin_online(noise,true_matches,table_size, r1 , r2 , r3):
-#     v = (r1 + r2 + r3 ) / 3  
-#     result = (v<=noise+true_matches*noise/table_size).if_else(sint(1),sint(0))
-    
-#     return result
-
 def generate_truncated_laplace(sensitivity,epsilon,delta):
     eoversen = epsilon/sensitivity
     p = (np.exp(eoversen) - 1) / (np.exp(eoversen) + 1)
@@ -146,36 +140,6 @@ def equi_join_withnoise_new_coin(t1, table_size1, t2, table_size2, noise,r1,r2,r
         coin  = flip_coin_new(threshold, intermediate_array[i][0])
         intermediate_array[i][0] = (intermediate_array[i][5] == 1).if_else(sint(1),coin)
     return intermediate_array
-
-
-# def equi_join_withnoise_nocoin(t1, table_size1, t2, table_size2, noise):
-#     intermediate_array = Matrix(table_size1*table_size2,7,sint)
-#     #secure_counter.write(noise)
-    
-#     @for_range_opt(table_size1)
-#     def _(i):
-#         @for_range_opt(table_size2)
-#         def _(j):
-#             match = t1[i][0] == t2[j][0]   
-#             intermediate_size.iadd(match)
-#             #counterbit = secure_counter != 0
-#             #matchbit = match == 0
-#             #outbit = counterbit.bit_and(matchbit)
-#             outcon = (secure_counter<=noise).if_else(sint(1),sint(0))
-#             matchbit =  (match == 1).if_else(sint(1),outcon)
-#             temp = (match == 0).if_else(secure_counter+1,secure_counter)
-#             secure_counter.write(temp)
-
-#             intermediate_array[count][5] = match
-            
-#             intermediate_array[count][1] = t1[i][0] 
-#             intermediate_array[count][2] = t2[j][0]
-#             intermediate_array[count][3] = t1[i][1] 
-#             intermediate_array[count][4] = t2[j][1]
-#             intermediate_array[count][6] = matchbit
-#             count.write(count+1)
-#     count.write(0)
-#     return intermediate_array
 
 
 def filter(input_table, inputsize, filter_col, keyword):

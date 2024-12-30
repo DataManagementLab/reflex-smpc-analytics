@@ -117,12 +117,6 @@ def resizer_operator_updated(inputtable, inputsizex, inputsizey, truematches, N_
     return outm
 
 
-# def flip_coin_online(noise,true_matches,table_size, r1 , r2 , r3):
-#     v = (r1 + r2 + r3 ) / 3  
-#     result = (v<=noise+true_matches*noise/table_size).if_else(sint(1),sint(0))
-    
-#     return result
-
 def generate_truncated_laplace(sensitivity,epsilon,delta):
     eoversen = epsilon/sensitivity
     p = (np.exp(eoversen) - 1) / (np.exp(eoversen) + 1)

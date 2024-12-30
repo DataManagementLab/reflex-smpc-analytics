@@ -189,6 +189,32 @@ def equi_join_reflex(t1, table_size1, t2, table_size2):
 
     return intermediate_array
 
+
+def resizer_operator(inputtable, inputsizex, inputsizey, truematches, N_amount, N_add, threshold):#inputtable_index0 is c1
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    if N_add == 0:
+        @for_range_opt(inputsizey)
+        def _(i):
+            coin  = flip_coin_new(threshold, inputtable[i][0])
+            fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+            output[i][inputsizex] = fuzzyv
+
+    else:
+        secure_counter.write(N_amount)
+        @for_range_opt(inputsizey)
+        def _(i):
+            #outcon = sint(1)
+            outcon = (secure_counter>0).if_else(sint(1),sint(0))
+            output[i][inputsizex] = (inputtable[i][0]==1).if_else(sint(1),outcon)
+            temp = (inputtable[i][0]==0).if_else(secure_counter-1,secure_counter)
+            secure_counter.write(temp)
+        #secure_counter.write(sint(0))
+
+    output.secure_shuffle()
+    outm = reveal_copy(inputsizey,truematches,output)
+
+    return outm
+
 ######################################
 #n = 1000 #table_size
 

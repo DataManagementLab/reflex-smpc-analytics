@@ -3,7 +3,7 @@ Reflex: Efficient and Flexible Intermediate Result Size Trimming for SMPC Query 
 
 
 # This repo is for VLDB 2025 submission
-# please don't use it as a commercial product
+
 
 # Instruction: How to use it
 
@@ -35,6 +35,7 @@ Local: make sure you are in the top entry: /your-path/mp-spdz-your-version/
 
 
 Three Machine:  
-./replicated-ring-party.x 0 [MPC file name] -pn your-port -h your-server-ip -v
-./replicated-ring-party.x 1 [MPC file name] -pn your-port -h your-server-ip -v
-./replicated-ring-party.x 2 [MPC file name] -pn your-port -h your-server-ip -v
+./replicated-ring-party.x 0 [MPC file name] -pn your-port -h your-server-ip -v \
+./replicated-ring-party.x 1 [MPC file name] -pn your-port -h your-server-ip -v \
+./replicated-ring-party.x 2 [MPC file name] -pn your-port -h your-server-ip -v 
+
