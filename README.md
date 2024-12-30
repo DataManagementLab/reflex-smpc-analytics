@@ -9,11 +9,17 @@ Reflex: Efficient and Flexible Intermediate Result Size Trimming for SMPC Query 
 
 1. Download the MP-SPDZ to your local storage
 
-you can use compiled version from: https://github.com/data61/MP-SPDZ/releases/download/v0.3.9/mp-spdz-0.3.9.tar.xz
+you can use compiled version from: 
+
+https://github.com/data61/MP-SPDZ/releases/download/v0.3.9/mp-spdz-0.3.9.tar.xz
 
 or
 
-you can compile it by yourself: https://github.com/data61/MP-SPDZ.git see README to follow the tutorial
+you can compile it by yourself: 
+
+git clone https://github.com/data61/MP-SPDZ.git 
+
+see README to follow the tutorial
 
 2. move the .mpc files to /your-path/mp-spdz-your-version/Programs/Source/
 
