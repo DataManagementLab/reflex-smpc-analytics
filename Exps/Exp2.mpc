@@ -6,6 +6,7 @@ import math
 program.use_trunc_pr = True
 sfix.set_precision(4, 32)
 program.use_split(3)
+program.use_edabit(True)
 
 
 count = MemValue(0)
@@ -16,8 +17,11 @@ true_matches = MemValue(sint(0))
 
 
 temp = MemValue(sint(0))
-bigvalue = 2**20
+bigvalue = 100000
 
+
+def sum_online(r1,r2,r3):
+    return r1+r2+r3
 
 def reveal_copy(input_size, output_size, inputmatrix):
     resultm = Matrix(output_size,6,sint)
@@ -32,45 +36,55 @@ def reveal_copy(input_size, output_size, inputmatrix):
 
     return resultm
 
-
-def resizer_operator(inputtable, inputsizex, inputsizey, truematches, N_amount, N_add, threshold):#inputtable_index0 is c1
+def resizer_operator_parallel(inputtable, inputsizex, inputsizey, truematches, noise, threshold, rlist0,rlist1,rlist2):#inputtable_index0 is c1
+    start_timer(777)
     output = Matrix(inputsizey,inputsizex+1,sint)
-    if N_add == 0:
-        @for_range_opt(inputsizey)
-        def _(i):
-            coin  = flip_coin_new(threshold, inputtable[i][0])
-            fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
-            output[i][inputsizex] = fuzzyv
+    @for_range_opt(inputsizey)
+    def _(i):
+        coin  = flip_coin_new(threshold, sum_online(rlist0[i],rlist1[i],rlist2[i]))
+        fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+        output[i][inputsizex] = fuzzyv
+    stop_timer(777)
 
-    else:
-        secure_counter.write(N_amount)
-        @for_range_opt(inputsizey)
-        def _(i):
-            #outcon = sint(1)
-            outcon = (secure_counter>0).if_else(sint(1),sint(0))
-            output[i][inputsizex] = (inputtable[i][0]==1).if_else(sint(1),outcon)
-            temp = (inputtable[i][0]==0).if_else(secure_counter-1,secure_counter)
-            secure_counter.write(temp)
-        #secure_counter.write(sint(0))
-
+    start_timer(888)
     output.secure_shuffle()
-    outm = reveal_copy(inputsizey,truematches,output)
+    stop_timer(888)
+
+    start_timer(999)
+    outm = reveal_copy(inputsizey,truematches+noise,output)
+    stop_timer(999)
 
     return outm
 
-    
-
 def compute_threshold(noise, true_matches,table_size):
     return noise/(table_size-true_matches)*bigvalue
+
+def compute_threshold_three_servers(noise, true_matches,table_size, numberOfservers):
+    return int(noise/(table_size-true_matches)*bigvalue*numberOfservers)
 
 def flip_coin_new(threshold, c1i):
     result = (c1i<=threshold).if_else(sint(1),sint(0))
     return result
 
+def rand_gen_sint(gen_mode, randlist_len, ringsize):
+    rand_list = sint.Array(randlist_len)
+    if gen_mode == 0:
+        @for_range_opt(randlist_len)
+        def _(i):
+            rand_list[i] = sint.get_input_from(2)
+    if gen_mode == 1:
+        @for_range_opt(randlist_len)
+        def _(i):
+            rand_list[i] = sint.get_random() % ringsize
 
-def generate_r(r1,r2,r3):
-    return (r1+r2+r3)/3
-
+    if gen_mode == 2:
+        @for_range_opt(randlist_len)
+        def _(i):
+            r1 = sint.get_input_from(0)
+            r2 = sint.get_input_from(1)
+            r3 = sint.get_input_from(2)
+            rand_list[i] = (r1+r2+r3)/3
+    return rand_list
 
 def generate_truncated_laplace(sensitivity,epsilon,delta):
     eoversen = epsilon/sensitivity
@@ -113,10 +127,58 @@ def equi_join(t1, table_size1, t2, table_size2):
 
     return intermediate_size, intermediate_array
 
-
-def equi_join_withnoise_new_coin(t1, table_size1, t2, table_size2, noise,r1,r2,r3):
+def equi_join_reflex(t1, table_size1, t2, table_size2):
     intermediate_array = Matrix(table_size1*table_size2,6,sint)
-    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]    
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            #intermediate_array[count][0] = 0
+            count.write(count+1)
+            true_matches.write(match+true_matches)
+    count.write(0)
+
+    return intermediate_array
+
+
+def equi_join_withnoise_new_coin(t1, table_size1, t2, table_size2, noise, rlist0,rlist1,rlist2):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]    
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            #intermediate_array[count][0] = 0
+            count.write(count+1)
+            true_matches.write(match+true_matches)
+    count.write(0)
+
+    threshold = compute_threshold_three_servers(noise, true_matches,table_size1*table_size2,3)
+
+    @for_range_opt(table_size1*table_size2)
+    def _(i):
+        coin  = flip_coin_new(threshold, sum_online(rlist0[i],rlist1[i],rlist2[i]))
+        intermediate_array[i][0] = (intermediate_array[i][5] == 1).if_else(sint(1),coin)
+    return intermediate_array
+
+def generate_r(r1,r2,r3):
+    return (r1+r2+r3)/3
+
+def equi_join_withnoise_new_coin_(t1, table_size1, t2, table_size2, noise, r1,r2,r3):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
     @for_range_opt(table_size1)
     def _(i):
         @for_range_opt(table_size2)
@@ -273,7 +335,86 @@ def noisy_filter_new_coin_4_conditions_smaller_than(input_table, inputsizex, inp
     return intermediate_result
 
 
+def noisy_filter_reflex_smaller_than(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,4,sint)
 
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] <= keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        #intermediate_result[i][3] = generate_r(r1,r2,r3)
+        intermediate_size.iadd(relevant_bit)
+    
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+
+
+def noisy_filter_reflex(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        #intermediate_result[i][3] = generate_r(r1,r2,r3)
+        intermediate_size.iadd(relevant_bit)
+    
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+def noisy_filter_reflex_4equal(input_table, inputsize, filter_col, keyword1, keyword2, keyword3, keyword4):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit1 = input_table[i][filter_col] == keyword1
+        relevant_bit2 = input_table[i][filter_col+1] == keyword2
+        relevant_bit3 = input_table[i][filter_col+2] == keyword3
+        relevant_bit4 = input_table[i][filter_col+3] == keyword4
+
+        rb12 = relevant_bit1.bit_and(relevant_bit2)
+        rb34 = relevant_bit3.bit_and(relevant_bit4)
+        relevant_bit = rb12.bit_and(rb34)
+
+        intermediate_result[i][0] = relevant_bit
+        intermediate_result[i][1] = input_table[i][0]
+        intermediate_result[i][2] = input_table[i][1]
+        #intermediate_result[i][3] = generate_r(r1,r2,r3)
+        intermediate_size.iadd(relevant_bit)
+    
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+
+def noisy_filter_reflex_4smallerthan(input_table, inputsize, filter_col, keyword1, keyword2, keyword3, keyword4):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit1 = input_table[i][filter_col] <= keyword1
+        relevant_bit2 = input_table[i][filter_col+1] <= keyword2
+        relevant_bit3 = input_table[i][filter_col+2] <= keyword3
+        relevant_bit4 = input_table[i][filter_col+3] <= keyword4
+
+        rb12 = relevant_bit1.bit_and(relevant_bit2)
+        rb34 = relevant_bit3.bit_and(relevant_bit4)
+        relevant_bit = rb12.bit_and(rb34)
+
+        intermediate_result[i][0] = relevant_bit
+        intermediate_result[i][1] = input_table[i][0]
+        intermediate_result[i][2] = input_table[i][1]
+        #intermediate_result[i][3] = generate_r(r1,r2,r3)
+        intermediate_size.iadd(relevant_bit)
+    
+    intermediate_size.write(sint(0))
+    return intermediate_result
 
 def noisy_filter_new_coin(input_table, inputsize, filter_col, keyword, noise,r1,r2,r3):
     intermediate_result = Matrix(inputsize,4,sint)
@@ -327,13 +468,30 @@ def noisy_filter_new_coin_4_conditions(input_table, inputsizex, inputsizey, filt
     intermediate_size.write(sint(0))
     return intermediate_result
 
+def group_by_reflex(t_input_sorted, x ,tsize):
+    start_timer(400)
+    t_input_sorted.sort()
+    stop_timer(400)
+    agg = Array(tsize,sint)
+    agg_m = Matrix(tsize, x, sint)
+    agg[0] = t_input_sorted[0][1]
+    agg_m[0][0] = sint(1)
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] == t_input_sorted[i+1][0]
+        temp = agg[i] + t_input_sorted[i+1][1]
+        agg[i+1] = (eqb == 1).if_else(temp,t_input_sorted[i+1][1])
+        agg_m[i+1][0] = (eqb == 1).if_else(sint(0),sint(1))
+        true_matches.iadd(agg_m[i+1][0])
+    agg_m[tsize-1][0] = sint(1)
+    return agg, agg_m
+
+
 def group_by_newcoin(t_input_sorted,tsize,noise,r1,r2,r3):
     agg = Array(tsize,sint)
     agg_m = Matrix(tsize, 2, sint)
     agg[0] = t_input_sorted[0][1]
     agg_m[0][0] = sint(1)
-
-
     @for_range_opt(tsize-1)
     def _(i):
         eqb = t_input_sorted[i][0] == t_input_sorted[i+1][0]
@@ -374,13 +532,18 @@ def group_by(t_input_sorted,tsize):
 
 n = 1000000
 x = 4
+number_of_rand = 1000000
 
 print_ln("n is:%s",n)
 
 
 m1 = Matrix(n,x,sint)
 m2 = Matrix(n,x,sint)
-#m3 = Matrix(n,2,sint)
+
+rlist0 = sint.Array(number_of_rand)
+rlist1 = sint.Array(number_of_rand)
+rlist2 = sint.Array(number_of_rand)
+
 
 @for_range_opt(n)
 def _(i):
@@ -393,177 +556,63 @@ def _(i):
     m2[i][1] = sint.get_input_from(1) #value
 
 
+
+@for_range_opt(number_of_rand)
+def _(i):
+    rlist0[i] = sint.get_input_from(0)
+    rlist1[i] = sint.get_input_from(1)
+    rlist2[i] = sint.get_input_from(2)
+
+
 #./compile.py -l -R 128 -b 10000000 -X onejoin
-######################################### Fuzzywrap 2 join new coin and no coin
+################################################################### Group by reflex
+
+
+start_timer(401)
+r,r_m = group_by_reflex(m1,x,n)
+stop_timer(401)
+
+start_timer(500)
+noise = int(percentage*n)
+threshold = compute_threshold_three_servers(noise, truematches,n,3)
+intermediate_to_next = resizer_operator_parallel(r_m,x,n,truematches,noise,threshold,rlist0,rlist1,rlist2)
+stop_timer(500)
+
+
+######################################### Join+Reflex
 
 sensitivity = 1 
 epsilon = 0.5
 delta = 0.00005
+percentage = 0.1
+truematches = int(percentage*n)
+
 
 start_timer(100)
 noise = generate_truncated_laplace(sensitivity,epsilon,delta)
 stop_timer(100)
 
-# start_timer(201)
-# r1 = sfix.get_random(0.1,n*n)
-# r2 = sfix.get_random(0.1,n*n)
-# r3 = sfix.get_random(0.1,n*n)
-# #inter_array = equi_join_withnoise_nocoin(m1,R,m2,S,noise)
-# inter_array = equi_join_withnoise_new_coin(m1, n, m2, n, noise, r1, r2, r3)#t1, table_size1, t2, table_size2, noise,r1,r2,r3
-# stop_timer(201)
+start_timer(200)
+#rand_list = rand_gen_sint(0, n*n, bigvalue)
+inter_array = equi_join_reflex(m1, 1, m2, n)#t1, table_size1, t2, table_size2, noise,r1,r2,r3
+stop_timer(200)
 
-# start_timer(202)
-# inter_array.secure_shuffle()
-# stop_timer(202)
-
-
-# start_timer(200)
-# size, inter_array = equi_join(m1, 1, m2, n)
-# stop_timer(200)
-
-
-
-
-
-# start_timer(300)
-# keyword = sint(33425)
-# r1 = sfix.get_random(0.1,n)
-# r2 = sfix.get_random(0.1,n)
-# r3 = sfix.get_random(0.1,n)
-# filtered_table1 = noisy_filter_new_coin(m1,n,1,keyword,noise,r1,r2,r3)
-# stop_timer(300)
-
-# start_timer(320)
-# filtered_table1.secure_shuffle()
-# stop_timer(320)
-
-
-# start_timer(333)
-# keyword = sint(33425)
-# r1 = sfix.get_random(0.1,n)
-# r2 = sfix.get_random(0.1,n)
-# r3 = sfix.get_random(0.1,n)
-# filtered_table1 = filter(m1,n,1,keyword)
-# stop_timer(333)
-
-
-######################################################### filter 4 conditions =
-# start_timer(300)
-# keyword1 = sint(33425)
-# keyword2 = sint(1341)
-# keyword3 = sint(1234)
-# keyword4 = sint(42354)
-# r1 = sfix.get_random(0.1,n)
-# r2 = sfix.get_random(0.1,n)
-# r3 = sfix.get_random(0.1,n)
-# filtered_table1 = noisy_filter_new_coin_4_conditions(m1, x, n, 0, keyword1, keyword2, keyword3, keyword4, noise, r1, r2, r3)
-# stop_timer(300)
-
-# start_timer(320)
-# filtered_table1.secure_shuffle()
-# stop_timer(320)
-
-
-# start_timer(333)
-# #keyword = sint(33425)
-# r1 = sfix.get_random(0.1,n)
-# r2 = sfix.get_random(0.1,n)
-# r3 = sfix.get_random(0.1,n)
-# filtered_table1 = filter_4_conditions(m1,x,n,0,keyword1,keyword2,keyword3,keyword4)
-# stop_timer(333)
-
-################################################################### filter 1 condition <=
-# start_timer(300)
-# keyword = sint(33425)
-# r1 = sfix.get_random(0.1,n)
-# r2 = sfix.get_random(0.1,n)
-# r3 = sfix.get_random(0.1,n)
-# filtered_table1 = noisy_filter_new_coin_smaller_than(m1,n,1,keyword,noise,r1,r2,r3)
-# stop_timer(300)
-
-# start_timer(320)
-# filtered_table1.secure_shuffle()
-# stop_timer(320)
-
-
-# start_timer(333)
-# keyword = sint(33425)
-# r1 = sfix.get_random(0.1,n)
-# r2 = sfix.get_random(0.1,n)
-# r3 = sfix.get_random(0.1,n)
-# filtered_table1 = filter_smallerthan(m1,n,1,keyword)
-# stop_timer(333)
-
-######################################################### filter 4 conditions<=
 start_timer(300)
-keyword1 = sint(33425)
-keyword2 = sint(1341)
-keyword3 = sint(1234)
-keyword4 = sint(42354)
-r1 = sfix.get_random(0.1,n)
-r2 = sfix.get_random(0.1,n)
-r3 = sfix.get_random(0.1,n)
-filtered_table1 = noisy_filter_new_coin_4_conditions_smaller_than(m1, x, n, 0, keyword1, keyword2, keyword3, keyword4, noise, r1, r2, r3)
+noise = int(percentage*n)
+threshold = compute_threshold_three_servers(noise, truematches,n,3)
+intermediate_to_next = resizer_operator_parallel(inter_array,x,n,truematches,noise,threshold,rlist0,rlist1,rlist2)
 stop_timer(300)
 
-start_timer(320)
-filtered_table1.secure_shuffle()
-stop_timer(320)
+######################################################### filter 1 condition= + Reflex
 
 
-start_timer(333)
-#keyword = sint(33425)
-r1 = sfix.get_random(0.1,n)
-r2 = sfix.get_random(0.1,n)
-r3 = sfix.get_random(0.1,n)
-filtered_table1 = filter_4_conditions_smaller_than(m1,x,n,0,keyword1,keyword2,keyword3,keyword4)
-stop_timer(333)
+start_timer(500)
+keyword = sint(33425)
+filtered_table1 = noisy_filter_reflex(m1,n,1,keyword)
+stop_timer(500)
 
-###################################################################
-
-
-
-# start_timer(400)
-# m1.sort()
-# stop_timer(400)
-
-# start_timer(401)
-# r1 = sfix.get_random(0.1,n)
-# r2 = sfix.get_random(0.1,n)
-# r3 = sfix.get_random(0.1,n)
-# r,r_m = group_by_newcoin(m1,n,noise,r1,r2,r3)
-# stop_timer(401)
-
-# start_timer(405)
-# r.secure_shuffle()
-# stop_timer(405)
-
-
-
-# start_timer(410)
-# r,r_m = group_by(m1,n)
-# stop_timer(410)
-
-
-
-################################################################# resizer op
-
-
-# y = n
-# truematches = int(y*0.1)
-# noiseamount = int(y*0.1)
-# threshold = int(noiseamount / (y-truematches) * bigvalue)
-
-# start_timer(666)
-# resizer_operator(m1,x, y, truematches, noiseamount, 0, threshold)
-# stop_timer(666)
-
-# start_timer(777)
-# resizer_operator(m1,x, y, truematches, noiseamount, 1, threshold)
-# stop_timer(777)
-
-
-# start_timer(888)
-# m1.sort()
-# #reveal_copy(n, int(n*0.2), m1)
-# stop_timer(888)
+start_timer(600)
+noise = int(percentage*n)
+threshold = compute_threshold_three_servers(noise, truematches,n,3)
+intermediate_to_next = resizer_operator_parallel(filtered_table1,x,n,truematches,noise,threshold,rlist0,rlist1,rlist2)
+stop_timer(600)

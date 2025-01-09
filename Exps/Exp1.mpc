@@ -1,0 +1,164 @@
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+sfix.set_precision(4, 32)
+program.use_split(3)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+secure_counter = MemValue(sint(0))
+true_matches = MemValue(sint(0))
+
+
+temp = MemValue(sint(0))
+bigvalue = 100000#2**20
+
+
+def filter(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        intermediate_size.iadd(relevant_bit)
+
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+def reveal_copy(input_size, output_size, inputmatrix):
+    resultm = Matrix(output_size,6,sint)
+    @for_range_opt(input_size)
+    def _(i):
+        inputmatrix[i][0].reveal()
+
+    @for_range_opt(output_size)
+    def _(i):
+        resultm = inputmatrix[i][0]
+
+
+    return resultm
+
+def copy(outputx,outputy, inputmatrix):
+    resultm = Matrix(outputy,outputx,sint)
+    @for_range_opt(outputy)
+    def _(i):
+        resultm = inputmatrix[i][0]
+
+
+    return resultm
+    
+
+def compute_threshold(noise, true_matches,table_size):
+    return noise/(table_size-true_matches)*bigvalue
+
+def flip_coin_new(threshold, c1i):
+    result = (c1i<=threshold).if_else(sint(1),sint(0))
+    return result
+
+
+def sum_online(r1,r2,r3):
+    return r1+r2+r3
+
+
+def resizer_operator_parallel(inputtable, inputsizex, inputsizey, truematches, noise, threshold, rlist0,rlist1,rlist2):#inputtable_index0 is c1
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    @for_range_opt(inputsizey)
+    def _(i):
+        coin  = flip_coin_new(threshold, sum_online(rlist0[i],rlist1[i],rlist2[i]))
+        fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+        output[i][inputsizex] = fuzzyv
+
+    output.secure_shuffle()
+    print_ln("resizer output size is:%s",int(truematches+noise))
+    outm = reveal_copy(inputsizey,int(truematches+noise),output)
+
+    return outm
+
+def resizer_operator_iterative(inputtable, inputsizex, inputsizey, truematches, N_amount):
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    secure_counter.write(N_amount)
+    @for_range_opt(inputsizey)
+    def _(i):
+        outcon = (secure_counter>0).if_else(sint(1),sint(0))
+        output[i][inputsizex] = (inputtable[i][0]==1).if_else(sint(1),outcon)
+        temp = (inputtable[i][0]==0).if_else(secure_counter-1,secure_counter)
+        secure_counter.write(temp)
+    output.secure_shuffle()
+    outm = reveal_copy(inputsizey,truematches+N_amount,output)
+
+    return outm
+
+def compute_threshold_three_servers(noise, true_matches,table_size, numberOfservers):
+    return int(noise/(table_size-true_matches)*bigvalue*numberOfservers)
+
+
+######################################
+
+n = 10000
+k = 6
+x = 2**k
+
+print_ln("n is:%s",n)
+
+sensitivity = 1
+epsilon = 0.5
+delta = 0.00005
+number_of_rand = 1000000
+
+m1 = Matrix(n,x,sint)
+m2 = Matrix(n,x,sint)
+#m3 = Matrix(n,2,sint)
+
+rlist0 = sint.Array(number_of_rand)
+rlist1 = sint.Array(number_of_rand)
+rlist2 = sint.Array(number_of_rand)
+
+@for_range_opt(n)
+def _(i):
+    m1[i][0] = sint.get_input_from(0) #key pid
+    m1[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(n)
+def _(i):
+    m2[i][0] = sint.get_input_from(1) #key pid
+    m2[i][1] = sint.get_input_from(1) #value
+
+
+@for_range_opt(number_of_rand)
+def _(i):
+    rlist0[i] = sint.get_input_from(0)
+    rlist1[i] = sint.get_input_from(1)
+    rlist2[i] = sint.get_input_from(2)
+
+####################################################################### parallel resizer
+
+y = n
+truematches = int(y*0.1)
+noiseamount = int(y*0.1)
+#threshold = int(noiseamount / (y-truematches) * bigvalue)*3
+
+start_timer(666)
+noise = int(n*n*0.1)
+threshold = compute_threshold_three_servers(noise, truematches,n,3)
+resizer_operator_parallel(m1,x, y, truematches, noiseamount, threshold, rlist0,rlist1,rlist2)
+stop_timer(666)
+
+####################################################################### sequential resizer
+
+start_timer(777)
+resizer_operator_iterative(m1,x,y,truematches,noiseamount)
+stop_timer(777)
+
+###################################################################### shrinkwrap
+start_timer(888)
+m2.sort()
+copy(x,y,m2)
+stop_timer(888)
