@@ -1,0 +1,45 @@
+Using statistical security parameter 40
+Trying to run 128-bit computation
+Starting timer 100 at 0 (0 MB, 0 rounds) after 5.4e-06
+Stopped timer 100 at 0.0184037 (0.139331 MB, 114 rounds)
+Starting timer 700 at 0 (0 MB, 0 rounds) after 2.156e-06
+Stopped timer 700 at 0.0221039 (0.137461 MB, 115 rounds)
+Starting timer 701 at 0 (0 MB, 0 rounds) after 2.031e-06
+Stopped timer 701 at 0.000591985 (0.038416 MB, 5 rounds)
+Starting timer 110 at 0 (0 MB, 0 rounds) after 1.787e-06
+Stopped timer 110 at 0.143781 (0.195452 MB, 2065 rounds)
+Starting timer 111 at 0 (0 MB, 0 rounds) after 2.427e-06
+Stopped timer 111 at 0.000737518 (0.0144 MB, 1 rounds)
+Starting timer 112 at 0 (0 MB, 0 rounds) after 1.906e-06
+Stopped timer 112 at 0.00326797 (0.172816 MB, 5 rounds)
+Starting timer 200 at 0 (0 MB, 0 rounds) after 4.186e-06
+Stopped timer 200 at 0.00815768 (0.004163 MB, 113 rounds)
+Starting timer 210 at 0 (0 MB, 0 rounds) after 3.957e-06
+Stopped timer 210 at 0.193929 (0.195452 MB, 2065 rounds)
+Starting timer 211 at 0 (0 MB, 0 rounds) after 5.166e-06
+Stopped timer 211 at 0.001328 (0.0144 MB, 1 rounds)
+Starting timer 212 at 0 (0 MB, 0 rounds) after 3.58e-06
+Stopped timer 212 at 0.00343119 (0.172816 MB, 5 rounds)
+Starting timer 300 at 0 (0 MB, 0 rounds) after 4.23e-06
+Stopped timer 300 at 0.00882904 (0.004163 MB, 113 rounds)
+Starting timer 310 at 0 (0 MB, 0 rounds) after 4.16e-06
+Stopped timer 310 at 0.067696 (0.075833 MB, 788 rounds)
+Starting timer 311 at 0 (0 MB, 0 rounds) after 4.141e-06
+Stopped timer 311 at 0.00139146 (0.0144 MB, 1 rounds)
+The following benchmarks are including preprocessing (offline phase).
+Time = 0.476263 seconds 
+Time100 = 0.0184037 seconds (0.139331 MB, 114 rounds)
+Time110 = 0.143781 seconds (0.195452 MB, 2065 rounds)
+Time111 = 0.000737518 seconds (0.0144 MB, 1 rounds)
+Time112 = 0.00326797 seconds (0.172816 MB, 5 rounds)
+Time200 = 0.00815768 seconds (0.004163 MB, 113 rounds)
+Time210 = 0.193929 seconds (0.195452 MB, 2065 rounds)
+Time211 = 0.001328 seconds (0.0144 MB, 1 rounds)
+Time212 = 0.00343119 seconds (0.172816 MB, 5 rounds)
+Time300 = 0.00882904 seconds (0.004163 MB, 113 rounds)
+Time310 = 0.067696 seconds (0.075833 MB, 788 rounds)
+Time311 = 0.00139146 seconds (0.0144 MB, 1 rounds)
+Time700 = 0.0221039 seconds (0.137461 MB, 115 rounds)
+Time701 = 0.000591985 seconds (0.038416 MB, 5 rounds)
+Data sent = 1.1887 MB in ~5393 rounds (party 1 only; use '-v' for more details)
+Global data sent = 3.81907 MB (all parties)

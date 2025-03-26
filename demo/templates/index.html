@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reflex Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        #chart-container {
+            margin-top: 20px;
+        }
+
+        #extra-info {
+            margin-top: 20px;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Reflex Demo</h1>
+
+        <div id="chart-container">
+            <canvas id="myChart"></canvas>
+        </div>
+
+        <div class="form-group" style="display: flex; align-items: center;">
+            <label for="datasetSelect">Select Your Query:</label>
+            <select id="datasetSelect">
+                <option value="q1">Query1</option>
+                <option value="q2">Query2</option>
+                <option value="q3">Query3</option>
+
+            </select>
+            <button id="updateDataButton" style="margin-left: 10px;">Run Query</button>
+            <input type="checkbox" id="eagermode"> Reflex Eager Mode
+        </div>
+
+
+        <div class="queryplan" id="Query Plans and extra-info">
+            <h2>Query Plans and Extra-info</h2>
+            <div id="query-plan-tree">  </div>
+        </div>
+    </div>
+
+    <div id="tree-container"></div> 
+    <script>
+    const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+    const width = 1400;
+    const height = 1000;
+
+    const svg = d3.select("body").append("svg")
+        .attr("width", width)
+        .attr("height", height)
+        .append("g")
+        .attr("transform", "translate(80,80)");
+
+    // Modified separation function and tree layout
+    const treeLayout = d3.tree()
+        .size([width - 160, height - 160])
+        .separation((a, b) => (a.parent === b.parent ? 1.5 : 2.5)); // Removed depth division
+
+    let root = { name: "Query Root", children: [] };
+    let nodes = {};
+
+    const update = (source) => {
+        const data = treeLayout(d3.hierarchy(root));
+        const nodes = data.descendants();
+        const links = data.links();
+
+        // Update links
+        svg.selectAll(".link")
+            .data(links)
+            .join("path")
+            .attr("class", "link")
+            .attr("d", d3.linkVertical()
+                .x(d => d.x)
+                .y(d => d.y));
+
+        // Update nodes
+        const node = svg.selectAll(".node")
+            .data(nodes)
+            .join("g")
+            .attr("class", "node")
+            .attr("transform", d => `translate(${d.x},${d.y})`);
+
+        // Draw circles
+        node.append("circle")
+            .attr("r", 15);
+
+        // Draw text labels with improved positioning
+        node.append("text")
+            .attr("dy", 25)  // Position text below node
+            .attr("dx", 0)
+            .style("text-anchor", "middle")  // Center-align text
+            .style("font-size", "12px")
+            .text(d => `${d.data.name} (${d.data.execution_time ? d.data.execution_time.toFixed(2) + 's' : ''})`);
+    };
+
+    socket.on('query_plan_update', (data) => {
+        nodes[data.name] = data;
+        root.children = Object.values(nodes).filter(node => node.name !== "Query Root");
+        update(root);
+    });
+
+        socket.emit('execute_query', "SELECT * FROM Table1 JOIN Table2 ON Table1.k = Table2.k WHERE Table1.v = 333 AND Table2.v > 445");
+    </script>
+    <!-- <script>
+        // JavaScript to fetch data and render the tree
+        fetch('/query-plan')  // Fetch data from the Flask endpoint
+            .then(response => response.json())
+            .then(data => {
+                // D3.js tree creation code (adapted from D3.js examples)
+                const container = d3.select("#tree-container");
+                const width = 800;
+                const height = 600;
+
+                const svg = container.append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+
+                const g = svg.append("g").attr("transform", "translate(40,40)"); // Add some margin
+
+                const tree = d3.tree().size([height - 80, width - 160]); // Define tree size for vertical layout
+
+                const root = d3.hierarchy(data);
+                tree(root);
+
+                // Create links
+                g.selectAll(".link")
+                    .data(root.links())
+                    .enter().append("path")
+                    .attr("class", "link")
+                    .attr("d", d3.linkVertical()
+                        .x(d => d.x)
+                        .y(d => d.y));
+
+                // Create nodes
+                const nodes = g.selectAll(".node")
+                    .data(root.descendants())
+                    .enter().append("g")
+                    .attr("class", "node")
+                    .attr("transform", d => `translate(${d.x},${d.y})`);
+
+                nodes.append("circle")
+                    .attr("r", 10);
+
+                nodes.append("text")
+                    .attr("dy", "0.31em")
+                    .attr("x", d => d.children ? -10 : 10) // Adjust text position
+                    .style("text-anchor", d => d.children ? "end" : "start")
+                    .text(d => d.data.name);
+            });
+    </script> -->
+    <!-- <script>
+            // JavaScript to fetch data and render the tree
+            fetch('/query-plan')  // Fetch data from the Flask endpoint
+                .then(response => response.json())
+                .then(data => {
+                    // D3.js tree creation code (adapted from D3.js examples)
+                    const container = d3.select("#tree-container");
+                    const width = 800;
+                    const height = 600;
+
+                    const svg = container.append("svg")
+                        .attr("width", width)
+                        .attr("height", height);
+
+                    const g = svg.append("g").attr("transform", "translate(40,40)"); // Add some margin
+
+                    const tree = d3.tree().size([width - 80, height - 80]); // Define tree size
+
+                    const root = d3.hierarchy(data);
+                    tree(root);
+
+                    // Create links
+                    g.selectAll(".link")
+                        .data(root.links())
+                        .enter().append("path")
+                        .attr("class", "link")
+                        .attr("d", d3.linkVertical()
+                            .x(d => d.y)
+                            .y(d => d.x));
+
+                    // Create nodes
+                    const nodes = g.selectAll(".node")
+                        .data(root.descendants())
+                        .enter().append("g")
+                        .attr("class", "node")
+                        .attr("transform", d => `translate(${d.y},${d.x})`);
+
+                    nodes.append("circle")
+                        .attr("r", 10);
+
+                    nodes.append("text")
+                        .attr("dy", "0.31em")
+                        .attr("x", d => d.children ? -15 : 15) // Adjust text position
+                        .style("text-anchor", d => d.children ? "end" : "start")
+                        .text(d => d.data.name);
+
+                });
+    </script>    -->
+
+    <script>
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const datasetSelect = document.getElementById('datasetSelect');
+        const updateDataButton = document.getElementById('updateDataButton');
+        const EagerCheckbox = document.getElementById('eagermode');
+
+        let chartData = {{ chart_data | tojson }}; 
+        const chartOptions = {{ chart_options | tojson }};
+
+        const myChart = new Chart(ctx, {
+            type: 'line',
+            data: chartData,
+            options: chartOptions
+        });
+
+        updateDataButton.addEventListener('click', () => {
+            const selectedDataset = datasetSelect.value;
+            const eagermode = EagerCheckbox.checked;
+
+            fetch('/update_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: `dataset=${selectedDataset}&eagermode=${eagermode}`
+            })
+            .then(response => response.json())
+            .then(newData => {
+                chartData = newData;
+                myChart.data = newData.chartData;
+                myChart.options = newData.chart_options;
+                myChart.update();
+                // Update the query plan display:
+                const queryPlanDiv = document.getElementById('query-plan-tree');
+                queryPlanDiv.innerHTML = newData.query_plan_html; 
+            });
+        });
+    </script>
+</body>
+</html>
+
+<style>
+    #query-plan-tree img {
+        max-width: 30%; /* Or whatever percentage you want */
+        height: auto;  /* Important: height should be auto */
+        margin: 5px;
+        border: 1px solid #ccc;
+        box-sizing: border-box;
+    }
+</style>
+
+<style>
+.node circle {
+    fill: #999;
+}
+.node text {
+    font: 14px sans-serif;
+    text-anchor: end;
+}
+.link {
+    fill: none;
+    stroke: #555;
+    stroke-width: 2px;
+}
+</style>

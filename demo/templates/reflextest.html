@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflex Demo VLDB 2025</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.10.3/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+</head>
+
+
+<body class="bg-gray-100 flex">
+    <div class="w-1/7 bg-gray-800 text-white p-6 flex flex-col min-h-screen">
+        <div class="flex flex-col items-start gap-4">
+            <h1 class="text-lg font-semibold custom-color">Reflex Demo</h1>
+
+                <button onclick="showContent('overall-performance')" class="text-lg font-semibold text-left">Overall Performance Comparison: Query</button>
+                <hr class="border-t border-gray-500 my-2 w-3/4">
+
+
+
+                <button onclick="showContent('reflex-resizer-comparison')" class="text-lg font-semibold text-left">Performance Comparison: Resizer Operator</button>
+                <hr class="border-t border-gray-500 my-2 w-3/4">
+
+
+
+                <button onclick="showContent('security-performance-trade-off')" class="text-lg font-semibold text-left">Information Leakage Metric</button>
+
+            
+        </div>
+
+        <style>
+            .custom-color {
+              color: #c89838; /* Change this to your desired color */
+              font-size: 20px; /* Adjust the size as needed */
+            }
+          </style>
+
+        <hr class="border-t border-gray-600 my-6">
+
+        <div class="flex flex-col gap-4 mt-4">
+            <h1 class="text-lg font-semibold custom-color">Configuration</h1>
+            <label for="datasetSelect" class="mt-4">Please Choose your Query:</label>
+            <select id="datasetSelect" class="p-2 rounded bg-gray-700 text-white">
+                <option>Threejoin</option>
+                <option>AspirinAcount</option>
+                <option>Comorbidity</option>
+            </select>
+            <label for="input-size" class="mt-4">Input Size:</label>
+            <select id="input-size" class="p-2 rounded bg-gray-700 text-white">
+                <option>100 Rows</option>
+                <option>200 Rows</option>
+                <option>300 Rows</option>
+                <option>400 Rows</option>
+                <option>500 Rows</option>
+                <option>600 Rows</option>
+                <option>700 Rows</option>
+                <option>800 Rows</option>
+                <option>900 Rows</option>
+                <option>1000 Rows</option>
+            </select>
+
+        </div>
+
+    </br>
+        <div class="flex flex-col items-left gap-4 mt-4">
+            <h2 class="font-semibold mr-4 custom-color">Security&Performance Trade-off:</h2>
+            <div class="flex justify-center items-center bg-gray-800 p-4 rounded shadow">
+                <div class="flex items-center">
+                    <span class="mr-6">Fully Oblivious</span>
+                    <input type="range" id="customSlider" class="slider" min="0" max="100" step="1" />
+                    <span class="ml-6">Fully Revealed</span>
+                </div>
+            </div>
+            <!-- <button id='runqueryButton' class="mt-4 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded">Run Query</button> -->
+            <button id='show_cmd' onclick="startCommand()" class="mt-4 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded">Run Query and Show CMD</button>
+            <button class="mt-2 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded" onclick="fetchQueryPlanTree_static()">Show Query Plan Tree</button>
+            
+            <button class="mt-2 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded" onclick="fetchQueryPlan()">Play Animation</button>
+            <button id='reset' class="mt-4 bg-yellow-500 hover:bg-red-600 text-white py-2 px-4 rounded">Reset</button>
+
+        </div>
+
+    </div>
+
+
+
+    <script>
+        document.getElementById('reset').addEventListener('click', function() {
+            window.location.href = 'http://10.0.2.17:5000/';
+        });
+    </script>
+
+
+    <script>
+        async function fetchQueryPlanTree_static() {
+            // Collect parameters from the web page
+            const params = {
+                queryname: document.getElementById('datasetSelect').value,
+                querymode: document.getElementById('customSlider').value,
+                // Add more parameters as needed
+            };
+
+            try {
+                // Send a POST request to the backend with the collected parameters
+                const response = await fetch('/backend-endpoint', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(params),
+                });
+
+                if (response.ok) {
+                    // Assuming the backend responds with a URL to the PNG image
+                    const imageBlob = await response.blob();
+                    console.log(imageBlob)
+                    const imageUrl = URL.createObjectURL(imageBlob);
+
+                    // Display the image on the web page
+                    const imgElement = document.getElementById('queryPlanTree');
+                    imgElement.src = imageUrl;
+                    imgElement.style.display = 'block'; // Show the image
+                } else {
+                    console.error('Failed to fetch query plan tree');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+    </script>
+
+    <div class="w-3/4 p-6 flex flex-col gap-6">
+        <div id='meta_container' class="bg-gray-200 p-4 rounded shadow flex items-center flex-wrap">
+            <span class="font-semibold">Noise Distribution:</span> <span id='slider-value-display' class="bg-white px-2 py-1 rounded shadow label-span">TLap.</span>
+            <span class="ml-4 font-semibold">Resizer Type:</span> <span id='resizer-type' class="bg-white px-2 py-1 rounded shadow label-span">Reflex-Parallel</span>
+            <span class="ml-4 font-semibold">Insert Mode:</span> <span id='insert-mode' class="bg-white px-2 py-1 rounded shadow label-span">Eager Mode</span>
+        </div>
+        <!-- <div class="text-sm text-gray-700">Extra Information: privacy budget = 0.5, sensitivity_join = sqrt(n), sensitivity_filter = 1 .....</div> -->
+        
+        <div id='chart_container' class="w-full bg-white shadow-md p-6 border border-gray-300 rounded-lg">
+            <h2 class="text-lg font-semibold">Query Execution Output</h2>
+            <div id="terminal" class="terminal">
+                <pre id="output"></pre>
+            </div>
+        </div>
+
+
+        <style>
+            #meta_container {
+                width: 100%; /* Adjust the width as needed */
+                max-width: 1200px; /* Set a maximum width */
+                height: 60px;
+                padding: 20px; /* Adjust padding inside the container */
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Add a subtle shadow */
+                border-radius: 8px; /* Round the corners */
+                display: flex;
+                flex-wrap: wrap; /* Allow wrapping if needed */
+                gap: 10px; /* Space between items */
+            }
+            .label-span {
+                margin-right: 150px; /* Add space after each label span */
+            }
+
+            #chart_container {
+                width: 100%;
+                max-width: 1200px; /* Adjust the maximum width as needed */
+                height: 400px; /* Set the desired height */
+                padding: 20px;
+                box-sizing: border-box;
+            }
+            .terminal {
+                width: 100%;
+                max-width: 1200px;
+                height: 330px;
+                border: 1px solid #ccc;
+                background-color: #000;
+                color: #0F0;
+                font-family: 'Courier New', Courier, monospace;
+                font-size: 22px;
+                overflow-y: scroll;
+                padding: 10px;
+                box-sizing: border-box;
+            }
+        </style>
+
+        <div class="w-full bg-white shadow-md p-4 border border-gray-300 rounded-lg" style="background: rgb(255, 255, 255); width: 1200px; height: 650px">
+            <h2 class="text-lg font-semibold">Query Plan and Query Execution Visualization</h2>
+            <div id="query_plan_tree_container">
+                <img id="queryPlanTree">
+            </div>
+        </div>
+        <style>
+            /* Initially hide the image */
+            #queryPlanTree {
+                display: none;
+                width: 100%;
+                max-width: 1200px; /*Adjust the maximum width as needed  */
+                height: 600px; /* Set the desired height */
+                box-sizing: border-box;
+            }
+    
+            #query_plan_tree_container {
+                width: 100%; /* Adjust the width as needed */
+                height: 500px; /* Adjust height automatically based on content */
+                box-sizing: border-box;
+                max-width: 1200px; /*Set a maximum width*/
+            }
+        </style>
+        
+    </div>
+
+
+
+    <script>
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const runqueryButton = document.getElementById('runqueryButton');
+        const datasetSelect = document.getElementById('datasetSelect');
+
+        let chartData = {{ chart_data | tojson }}; 
+        const chartOptions = {{ chart_options | tojson }};
+
+        const myChart = new Chart(ctx, {
+            type: 'line',
+            data: chartData,
+            options: chartOptions
+        });
+
+
+        runqueryButton.addEventListener('click', () => {
+            const selectedDataset = datasetSelect.value;
+            // const eagermode = EagerCheckbox.checked;
+
+            fetch('/update_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: `dataset=${selectedDataset}` //&eagermode=${eagermode}
+            })
+            .then(response => response.json())
+            .then(newData => {
+                chartData = newData;
+                myChart.data = newData.chartData;
+                myChart.options = newData.chart_options;
+                myChart.update();
+                // Update the query plan display:
+                nodes = {};
+                root.children = [];
+                
+                // Clear existing nodes and links
+                svg.selectAll(".node").remove();
+                svg.selectAll(".link").remove();
+                
+                // Emit the query to the server
+                socket.emit('execute_query', "SELECT * FROM Table1 JOIN Table2 ON Table1.k = Table2.k WHERE Table1.v = 333 AND Table2.v > 445");
+            });
+
+            // Keep your existing socket handler
+            socket.on('query_plan_update', (data) => {
+                nodes[data.name] = data;
+                root.children = Object.values(nodes).filter(node => node.name !== "Query Root");
+                update(root);
+            });
+
+        });
+
+
+
+    </script>
+
+
+    <!-- <script>
+        const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        const width = 1000;
+        const height = 600;
+
+        const svg = d3.select("#query-plan-tree").append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .append("g")
+            .attr("transform", "translate(80,80)");
+
+        // Modified separation function and tree layout
+        const treeLayout = d3.tree()
+            .size([width - 160, height - 160])
+            .separation((a, b) => (a.parent === b.parent ? 1.5 : 2.5)); // Removed depth division
+
+        let root = { name: "Query Root", children: [] };
+        let nodes = {};
+
+        const update = (source) => {
+            const data = treeLayout(d3.hierarchy(root));
+            const nodes = data.descendants();
+            const links = data.links();
+
+            // Update links
+            svg.selectAll(".link")
+                .data(links)
+                .join("path")
+                .attr("class", "link")
+                .attr("d", d3.linkVertical()
+                    .x(d => d.x)
+                    .y(d => d.y))
+                .attr("stroke", "#ccc") // Lighter color for subtle appearance
+                .attr("stroke-width", 1) // Thinner lines
+                .attr("fill", "none");
+
+            // Update nodes
+            const node = svg.selectAll(".node")
+                .data(nodes)
+                .join("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+
+            // Draw circles
+            node.append("circle")
+                .attr("r", 10) // Smaller radius for better proportion
+                .attr("fill", "#6baed6") // Light blue fill color
+                .attr("stroke", "#3182bd") // Darker blue stroke color
+                .attr("stroke-width", 2); // Stroke width for better visibility
+
+            // Draw text labels with improved positioning
+            node.append("text")
+                .attr("dy", 25)  // Position text below node
+                .attr("dx", 0)
+                .style("text-anchor", "middle")  // Center-align text
+                .style("font-size", "12px")
+                .text(d => `${d.data.name} (${d.data.execution_time ? d.data.execution_time.toFixed(2) + 's' : ''})`);
+        };
+
+        socket.on('query_plan_update', (data) => {
+            nodes[data.name] = data;
+            root.children = Object.values(nodes).filter(node => node.name !== "Query Root");
+            update(root);
+        });
+
+            socket.emit('execute_query', "SELECT * FROM Table1 JOIN Table2 ON Table1.k = Table2.k WHERE Table1.v = 333 AND Table2.v > 445");
+
+        // const width = 600;
+        // const height = 400;
+        // const svg = d3.select("#query-plan-tree").append("svg")
+        //     .attr("width", width)
+        //     .attr("height", height)
+        //     .append("g")
+        //     .attr("transform", "translate(50,50)");
+
+        // const treeData = {
+        //     name: "Query Root",
+        //     children: [{ name: "Join Operation" }, { name: "Filter Operation" }]
+        // };
+
+        // const treeLayout = d3.tree().size([width - 100, height - 100]);
+        // const root = d3.hierarchy(treeData);
+        // treeLayout(root);
+
+        // svg.selectAll(".link")
+        //     .data(root.links())
+        //     .join("line")
+        //     .attr("x1", d => d.source.x)
+        //     .attr("y1", d => d.source.y)
+        //     .attr("x2", d => d.target.x)
+        //     .attr("y2", d => d.target.y)
+        //     .attr("stroke", "#555");
+
+        // const node = svg.selectAll(".node")
+        //     .data(root.descendants())
+        //     .join("g")
+        //     .attr("transform", d => `translate(${d.x},${d.y})`);
+
+        // node.append("circle").attr("r", 10).attr("fill", "#999");
+        // node.append("text").attr("dy", -15).attr("text-anchor", "middle").text(d => d.data.name);
+    </script> -->
+
+    <script>
+        const socket_c = io.connect('http://' + document.domain + ':' + location.port);
+
+
+        function extractNumber(inputString) {
+                // Use a regular expression to match one or more digits
+                const match = inputString.match(/\d+/);
+
+                // If a match is found, return the numeric part as an integer
+                if (match) {
+                    return parseInt(match[0], 10); // Convert the matched string to an integer
+                }
+
+                // Return null or a default value if no numeric part is found
+                return null;
+        }
+
+        function startCommand() {
+
+            const inputSizeElement = document.getElementById('input-size');
+            const query = 'threejoin'; // Replace with your command
+            const size = inputSizeElement.value;
+            console.log('Selected Size:', extractNumber(size));
+
+            const custom_slider = document.getElementById('customSlider');
+            console.log('Selected mode:', custom_slider.value);
+
+            const execution_mode = custom_slider.value;
+
+            socket_c.emit('start', {query_name: query, datasize:extractNumber(size), execution_mode:execution_mode});
+        }
+
+        socket_c.on('output', function(data) {
+            const outputElement = document.getElementById('output');
+            outputElement.textContent += data.data;
+            outputElement.parentElement.scrollTop = outputElement.parentElement.scrollHeight;
+        });
+    </script>
+
+    <!-- // slidebar -->
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            const slider = document.getElementById('customSlider');
+            const allowedPositions = [0, 25, 50, 75, 100]; // Define the allowed positions
+            const displayDiv = document.getElementById('slider-value-display');
+            const displayDiv2 = document.getElementById('resizer-type');
+            const displayDiv3 = document.getElementById('insert-mode');
+        
+            slider.addEventListener('input', (event) => {
+                const value = parseInt(event.target.value);
+                let closestPosition = allowedPositions[0];
+        
+                // Find the closest allowed position
+                allowedPositions.forEach(position => {
+                    if (Math.abs(position - value) < Math.abs(closestPosition - value)) {
+                        closestPosition = position;
+                    }
+                });
+        
+                // Set the slider value to the closest allowed position
+                event.target.value = closestPosition;
+        
+                // Update the display div with the current value or other content
+                displayDiv.innerHTML = `Current Value: ${closestPosition}`;
+        
+                // Optionally, update styles or other content based on the position
+                if (closestPosition === 0) {
+                    displayDiv.innerHTML = 'None';
+                    displayDiv2.innerHTML ='None';
+                    displayDiv3.innerHTML ='None';
+                } else if (closestPosition === 25) {
+                    displayDiv.innerHTML = 'TLap.';
+                    displayDiv2.innerHTML ='Sorting-based';
+                    displayDiv3.innerHTML ='Eager Mode';
+                } else if (closestPosition === 50) {
+                    displayDiv.innerHTML = 'TLap.';
+                    displayDiv2.innerHTML ='Reflex-Sequential';
+                    displayDiv3.innerHTML ='Eager Mode';
+                } else if (closestPosition === 75) {
+                    displayDiv.innerHTML = 'TLap.';
+                    displayDiv2.innerHTML ='Reflex-Parallel';
+                    displayDiv3.innerHTML ='Eager Mode';
+                } else if (closestPosition === 100) {
+                    displayDiv.innerHTML = 'None';
+                    displayDiv2.innerHTML ='None';
+                    displayDiv3.innerHTML ='None';
+                }
+
+                // Get the parameter based on the slider position
+                // const parameter = getParameterFromPosition(closestPosition);
+                // console.log('Parameter:', parameter);
+            });
+
+        window.getParameterFromPosition = function(position) {
+                switch (position) {
+                    case 0:
+                        return 'fullyoblivious';
+                    case 25:
+                        return 'sorting-based';
+                    case 50:
+                        return 'reflex-sequential'; // You can define this as needed
+                    case 75:
+                        return 'reflex-parallel'; // You can define this as needed
+                    case 100:
+                        return 'Fully Revealed'; // You can define this as needed
+                    default:
+                        return 'fullyoblivious';
+                }
+            }
+        });
+        </script>
+
+    <!-- // update the content -->
+    <script>
+    function showContent(section) {
+        const contentDiv = document.getElementById('chart_container');
+    
+        // Define content for each section
+        const content = {
+            'home': '<p>Welcome to the Home section!</p>',
+            'overall-performance': '<canvas id="myChart"></canvas>',
+            'reflex-resizer-comparison': '<canvas id="myChart"></canvas>',
+            'security-performance-trade-off': '<canvas id="myChart"></canvas>'
+        };
+    
+        // Update the content of the page
+        contentDiv.innerHTML = content[section];
+        if (section === 'overall-performance') {
+            initializeChart();
+            
+        }
+        if (section === 'reflex-resizer-comparison') {
+            initializeChart2();
+        }
+        if (section === 'security-performance-trade-off'){
+            initializeChart3();
+        }
+
+    }
+
+    function initializeChart() {
+    const ctx = document.getElementById('myChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line', // Chart type is 'line'
+        data: {
+            labels: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000], // X-axis labels
+            datasets: [
+                {
+                    label: 'Fully Oblivious',
+                    data: [5, 15, 30, 80, 190, 400, 900, 4000, 9000, 25000],
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 2,
+                    pointStyle: 'rectRounded',
+                    pointRadius: 5,
+                    fill: false
+                },
+                {
+                    label: 'Sorting-based Resizer',
+                    data: [2, 5, 7, 9, 12, 15, 17, 19, 21, 24],
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 2,
+                    pointStyle: 'triangle',
+                    pointRadius: 5,
+                    fill: false
+                },
+                {
+                    label: 'Reflex Resizer-parallel',
+                    data: [0.12, 0.24, 0.4, 0.59, 0.94, 1.32, 1.7, 1.94, 2.51, 2.8],
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 2,
+                    pointStyle: 'circle',
+                    pointRadius: 5,
+                    fill: false
+                },
+                {
+                    label: 'Fully Revealed',
+                    data: [0.1, 0.13, 0.18, 0.22, 0.27, 0.31, 0.36, 0.39, 0.42, 0.45],
+                    backgroundColor: 'rgba(255, 206, 86, 0.2)',
+                    borderColor: 'rgba(255, 206, 86, 1)',
+                    borderWidth: 2,
+                    pointStyle: 'crossRot',
+                    pointRadius: 5,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            scales: {
+                x: {
+                    type: 'linear',
+                    position: 'bottom',
+                    min: 0,
+                    max: 1100,
+                    title: {
+                        display: true,
+                        text: 'Datasize (rows)'
+                    }
+                },
+                y: {
+                    type: 'logarithmic',
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Execution Time (s)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                }
+            }
+        }
+    });
+}
+
+
+
+    // function initializeChart() {
+    // const ctx = document.getElementById('myChart').getContext('2d');
+    // // Assuming you are using Chart.js for charting
+    // new Chart(ctx, {
+    //     type: 'line', // Chart type is 'line'
+    //     data: {
+    //         labels: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000], // X-axis labels from 100 to 1000
+    //         datasets: [
+    //             {
+    //                 label: 'Fully Oblivious', // Label for the first line
+    //                 data: [5,15,30,80,190,400,900,4000,9000,25000], // Execution times for the first dataset
+    //                 backgroundColor: 'rgba(75, 192, 192, 0.2)', // Background color for the line
+    //                 borderColor: 'rgba(75, 192, 192, 1)', // Border color for the line
+    //                 borderWidth: 1 // Border width of the line
+    //             },
+    //             {
+    //                 label: 'Sorting-based Resizer', // Label for the second line
+    //                 data: [2,5,7,9,12,15,17,19,21,24], // Execution times for the second dataset
+    //                 backgroundColor: 'rgba(255, 99, 132, 0.2)', // Different background color
+    //                 borderColor: 'rgba(255, 99, 132, 1)', // Different border color
+    //                 borderWidth: 1 // Border width of the line
+    //             },
+    //             {
+    //                 label: 'Reflex Resizer-parallel', // Label for the third line
+    //                 data: [0.12, 0.24, 0.4, 0.59, 0.94, 1.32, 1.7, 1.94, 2.51, 2.8], // Execution times for the third dataset
+    //                 backgroundColor: 'rgba(54, 162, 235, 0.2)', // Different background color
+    //                 borderColor: 'rgba(54, 162, 235, 1)', // Different border color
+    //                 borderWidth: 1 // Border width of the line
+    //             },
+    //             {
+    //                 label: 'Fully Revealed', // Label for the third line
+    //                 data: [0.1, 0.13, 0.18, 0.22, 0.27, 0.31, 0.36, 0.39, 0.42, 0.45], // Execution times for the third dataset
+    //                 backgroundColor: 'rgba(255, 206, 86, 0.2)', // Different background color
+    //                 borderColor: 'rgba(255, 206, 86, 1)', // Different border color
+    //                 borderWidth: 1 // Border width of the line
+    //             }
+    //         ]
+    //     },
+    //     options: {
+    //         scales: {
+    //             x: {
+    //                 type: 'linear', // Use a linear scale for the X-axis
+    //                 position: 'bottom',
+    //                 min: 0, // Minimum value for the X-axis
+    //                 max: 1200,// Maximum value for the X-axis
+    //                 title: {
+    //                     display: true,
+    //                     text: 'Datasize (rows)' // Label for the x-axis
+    //                 }
+    //             },
+    //             y: {
+    //                 type: 'logarithmic',
+    //                 beginAtZero: true, // Y-axis starts at zero
+    //                 title: {
+    //                     display: true,
+    //                     text: 'Execution Time (s)' // Label for the Y-axis
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     });
+    // }
+
+    function initializeChart2() {
+    const ctx = document.getElementById('myChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line', // Chart type is 'line'
+        data: {
+            labels: [1e2, 1e3, 1e4, 1e5, 1e6], // X-axis labels
+            datasets: [
+                {
+                    label: 'Sorting-based Resizer (Shrinkwrap)',
+                    data: [0.17, 1.32, 7.32, 64.5, 675],
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 2,
+                    pointStyle: 'rectRounded',
+                    pointRadius: 5,
+                    fill: false
+                },
+                {
+                    label: 'Sequential Resizer',
+                    data: [0.04, 0.56, 5.68, 60.4, 604],
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 2,
+                    pointStyle: 'triangle',
+                    pointRadius: 5,
+                    fill: false
+                },
+                {
+                    label: 'Parallel Resizer',
+                    data: [0.01, 0.03, 0.2, 2.3, 24.5],
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 2,
+                    pointStyle: 'circle',
+                    pointRadius: 5,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            scales: {
+                x: {
+                    type: 'logarithmic',
+                    position: 'bottom',
+                    min: 90,
+                    max: 1.8e6,
+                    title: {
+                        display: true,
+                        text: 'Datasize (rows)'
+                    }
+                },
+                y: {
+                    type: 'logarithmic',
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Execution Time (s)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                }
+            }
+        }
+    });
+}
+
+
+
+
+    // function initializeChart2() {
+    // const ctx = document.getElementById('myChart').getContext('2d');
+
+    // // Create a new Chart instance
+    // new Chart(ctx, {
+    //         type: 'line', // Chart type is 'line'
+    //         data: {
+    //             labels: [1e2, 1e3, 1e4, 1e5, 1e6], // X-axis labels from 100 to 1000
+    //             datasets: [
+    //                 {
+    //                     label: 'Sorting-based Resizer (Shrinkwrap)', // Label for the first line
+    //                     data: [0.17,1.32,7.32,64.5,675], // Execution times for the sorting-based resizer
+    //                     backgroundColor: 'rgba(255, 99, 132, 0.2)', // Background color for the line
+    //                     borderColor: 'rgba(255, 99, 132, 1)', // Border color for the line
+    //                     borderWidth: 1 // Border width of the line
+    //                 },
+    //                 {
+    //                     label: 'Sequential Resizer', // Label for the second line
+    //                     data: [0.04,0.56,5.68,60.4,604], // Example execution times for the sequential resizer
+    //                     backgroundColor: 'rgba(54, 162, 235, 0.2)', // Different background color
+    //                     borderColor: 'rgba(54, 162, 235, 1)', // Different border color
+    //                     borderWidth: 1 // Border width of the line
+    //                 },
+    //                 {
+    //                     label: 'Parallel Resizer', // Label for the third line
+    //                     data: [0.01,0.03,0.2,2.3,24.5], // Execution times for the parallel resizer
+    //                     backgroundColor: 'rgba(75, 192, 192, 0.2)', // Different background color
+    //                     borderColor: 'rgba(75, 192, 192, 1)', // Different border color
+    //                     borderWidth: 1 // Border width of the line
+    //                 }
+    //             ]
+    //         },
+    //         options: {
+    //             scales: {
+    //                 x: {
+    //                     type: 'logarithmic', // Use a logarithmic scale for the X-axis
+    //                     position: 'bottom',
+    //                     min: 90, // Minimum value for the X-axis
+    //                     max: 1.8e6, // Maximum value for the X-axis
+    //                     title: {
+    //                         display: true,
+    //                         text: 'Datasize (rows)' // Label for the x-axis
+    //                     }
+    //                 },
+    //                 y: {
+    //                     type: 'logarithmic', // Use a logarithmic scale for the Y-axis
+    //                     beginAtZero: true, // Y-axis starts at zero
+    //                     title: {
+    //                         display: true,
+    //                         text: 'Execution Time (s)' // Label for the Y-axis
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     });
+    // }
+
+
+    function initializeChart3() {
+    const ctx = document.getElementById('myChart').getContext('2d');
+    // Assuming you are using Chart.js for charting
+    new Chart(ctx, {
+            type: 'line', // Chart type is 'line'
+            data: {
+                labels: [1e2, 183755, 367410, 551065,795938, 1e6], // X-axis labels
+                datasets: [
+                    {
+                        label: 'Beta(α = 2, β = 6)', // Label for the first line
+                        data: [2208, 6876381612, 27489930183, 61840647922, 129010426667, 203641081577], // Data points for the first dataset
+                        backgroundColor: 'rgba(0, 255, 0, 0.2)', // Background color for the line
+                        borderColor: 'rgba(0, 255, 0, 1)', // Border color for the line
+                        borderWidth: 2, // Border width of the line
+                        pointStyle: 'rectRounded', // Square points
+                        pointRadius: 5, // Size of the points
+                        fill: false // No fill under the line
+                    },
+                    {
+                        label: 'TLap(Δc = √N)', // Label for the second line
+                        data: [6394, 16007304, 31957504, 47899021, 69147664, 86851391], // Data points for the second dataset
+                        backgroundColor: 'rgba(255, 0, 0, 0.2)', // Different background color
+                        borderColor: 'rgba(255, 0, 0, 1)', // Different border color
+                        borderWidth: 2, // Border width of the line
+                        pointStyle: 'triangle', // Triangle points
+                        pointRadius: 5, // Size of the points
+                        fill: false // No fill under the line
+                    },
+                    {
+                        label: 'TLap(Δc = 1)', // Label for the third line
+                        data: [250, 291, 291, 291, 291, 291], // Data points for the third dataset
+                        backgroundColor: 'rgba(0, 0, 255, 0.2)', // Different background color
+                        borderColor: 'rgba(0, 0, 255, 1)', // Different border color
+                        borderWidth: 2, // Border width of the line
+                        pointStyle: 'circle', // Circle points
+                        pointRadius: 5, // Size of the points
+                        fill: false // No fill under the line
+                    }
+                ]
+            },
+            options: {
+                scales: {
+                    x: {
+                        type: 'logarithmic', // Use a logarithmic scale for the X-axis
+                        position: 'bottom',
+                        title: {
+                            display: true,
+                            text: 'N' // Label for the x-axis
+                        }
+                    },
+                    y: {
+                        type: 'logarithmic', // Use a logarithmic scale for the Y-axis
+                        title: {
+                            display: true,
+                            text: 'Rounds to recover T ± 1 (CRT)' // Label for the Y-axis
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top' // Position the legend at the top
+                    }
+                }
+            }
+        });
+    }
+
+
+
+    </script>
+
+
+    <script>
+    async function fetchQueryPlan() {
+        const container = document.getElementById("query_plan_tree_container");
+        const slider = document.getElementById('customSlider');
+        const sliderValue = parseInt(slider.value);
+        const querymode = getParameterFromPosition(sliderValue);
+        
+        // Show loading GIF
+        container.innerHTML = `
+            <div class="loading-container">
+                <img src="https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExcTQ1bnJmZG5qemprNXVxdHJ6aGo5a2Q1dXlxMzF3czlhaXdkd3k3OCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/17mNCcKU1mJlrbXodo/giphy.gif" alt="Loading animation" class="loading-gif">
+                <p class="loading-text">Generating query execution animation...</p>
+            </div>
+        `;
+    
+        try {
+            // Make GET request to Flask backend
+            const response = await fetch(`/get-query-plan?querymode=${querymode}`);
+            if (!response.ok) throw new Error('Network response was not ok');
+            
+            const data = await response.json();
+            console.log(data.gif_url)
+            
+            // Replace loading animation with received content
+            container.innerHTML = `
+                <div class="query-plan-content" style='height: 600px;'>
+                    ${data.description}
+                    <img src="${data.gif_url}" alt="Query Plan GIF" class="query-plan-gif" style="height: 500px; width: auto;">
+                </div>
+            `;
+        } catch (error) {
+            console.error('Error:', error);
+            container.innerHTML = `<p class="text-red-500">Error loading query plan</p>`;
+        }
+    }
+    </script>
+</body>
+</html>

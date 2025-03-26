@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Query UI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.10.3/cdn.min.js" defer></script>
+</head>
+<body class="bg-gray-100 flex">
+    <div class="ml-auto w-1/6 bg-gray-800 text-white p-6 flex flex-col gap-4 min-h-screen">
+        <h3 class="text-lg font-semibold">Home</h3>
+        <h3 class="text-lg font-semibold">Overall Performance</h3>
+        <h3 class="text-lg font-semibold">Reflex Resizer Comparison</h3>
+        <h3 class="text-lg font-semibold">Security & Performance Trade-off</h3>
+        <label for="query" class="mt-4">Please Choose your Query:</label>
+        <select id="query" class="p-2 rounded bg-gray-700 text-white">
+            <option>Threejoin</option>
+        </select>
+        <label for="input-size" class="mt-4">Input Size:</label>
+        <select id="input-size" class="p-2 rounded bg-gray-700 text-white">
+            <option>100 Rows</option>
+        </select>
+        <button id='updateDataButton' class="mt-4 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded">Run Query</button>
+        <button class="mt-2 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded">Play Animation</button>
+    </div>
+    <div class="w-3/4 p-6 flex flex-col gap-6">
+        <div class="bg-gray-200 p-4 rounded shadow">
+            <span class="font-semibold">Noise Distribution:</span> <span class="bg-white px-2 py-1 rounded shadow">TLap.</span>
+            <span class="ml-4 font-semibold">Resizer Type:</span> <span class="bg-white px-2 py-1 rounded shadow">Reflex-Parallel</span>
+            <span class="ml-4 font-semibold">Insert Mode:</span> <span class="bg-white px-2 py-1 rounded shadow">Eager Mode</span>
+        </div>
+        <div class="text-sm text-gray-700">Extra Information: privacy budge = 0.5, sensitivity_join = sqrt(n), sensitivity_filter = 1 .....</div>
+        <div id="chart-container">
+            <canvas id="myChart"></canvas>
+        </div>
+        <!-- <div class="w-full h-64 bg-white shadow-md flex items-center justify-center border border-gray-300 rounded-lg">[Query Plan Placeholder]</div> -->
+        <!-- <div class="w-full h-64 bg-white shadow-md flex items-center justify-center border border-gray-300 rounded-lg">[Table Placeholder]</div> -->
+        <table class="w-full bg-white shadow-md border border-gray-300 rounded-lg">
+            <thead class="bg-blue-600 text-white">
+                <tr>
+                    <th class="p-3">K</th><th class="p-3">V</th><th class="p-3">K1</th><th class="p-3">V1</th><th class="p-3">K2</th><th class="p-3">V2</th><th class="p-3">R'</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="border-t">
+                    <td class="p-3">1</td><td class="p-3">123</td><td class="p-3">1</td><td class="p-3">123</td><td class="p-3">1</td><td class="p-3">123</td><td class="p-3 bg-orange-400">1</td>
+                </tr>
+                <tr class="border-t">
+                    <td class="p-3">2</td><td class="p-3">432</td><td class="p-3">2</td><td class="p-3">432</td><td class="p-3">2</td><td class="p-3">432</td><td class="p-3">0</td>
+                </tr>
+                <tr class="border-t">
+                    <td class="p-3">4</td><td class="p-3">23</td><td class="p-3">5</td><td class="p-3">85</td><td class="p-3">0</td><td class="p-3">1</td><td class="p-3 bg-orange-400">1</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+
+    <script>
+        const ctx = document.getElementById('myChart').getContext('2d');
+        const datasetSelect = document.getElementById('datasetSelect');
+        const updateDataButton = document.getElementById('updateDataButton');
+        const EagerCheckbox = document.getElementById('eagermode');
+
+        let chartData = {{ chart_data | tojson }}; 
+        const chartOptions = {{ chart_options | tojson }};
+
+        const myChart = new Chart(ctx, {
+            type: 'line',
+            data: chartData,
+            options: chartOptions
+        });
+
+        updateDataButton.addEventListener('click', () => {
+            const selectedDataset = datasetSelect.value;
+            const eagermode = EagerCheckbox.checked;
+
+            fetch('/update_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: `dataset=${selectedDataset}&eagermode=${eagermode}`
+            })
+            .then(response => response.json())
+            .then(newData => {
+                chartData = newData;
+                myChart.data = newData.chartData;
+                myChart.options = newData.chart_options;
+                myChart.update();
+                // Update the query plan display:
+                const queryPlanDiv = document.getElementById('query-plan-tree');
+                queryPlanDiv.innerHTML = newData.query_plan_html; 
+            });
+        });
+    </script>    
+</body>
+</html>

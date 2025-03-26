@@ -1,0 +1,21 @@
+Using statistical security parameter 40
+Trying to run 128-bit computation
+Starting timer 100 at 0 (0 MB, 0 rounds) after 8.825e-06
+Stopped timer 100 at 0.0360105 (0.20957 MB, 184 rounds)
+Starting timer 200 at 0 (0 MB, 0 rounds) after 1.376e-06
+Stopped timer 200 at 0.0148143 (0.048802 MB, 182 rounds)
+Starting timer 300 at 0 (0 MB, 0 rounds) after 1.239e-06
+Stopped timer 300 at 0.078425 (0.36772 MB, 834 rounds)
+Starting timer 400 at 0 (0 MB, 0 rounds) after 1.958e-06
+Stopped timer 400 at 0.92456 (8.0228 MB, 3919 rounds)
+Starting timer 500 at 0 (0 MB, 0 rounds) after 4.367e-06
+Stopped timer 500 at 3.53647 (31.8931 MB, 10466 rounds)
+The following benchmarks are including preprocessing (offline phase).
+Time = 6.04837 seconds 
+Time100 = 0.0360105 seconds (0.20957 MB, 184 rounds)
+Time200 = 0.0148143 seconds (0.048802 MB, 182 rounds)
+Time300 = 0.078425 seconds (0.36772 MB, 834 rounds)
+Time400 = 0.92456 seconds (8.0228 MB, 3919 rounds)
+Time500 = 3.53647 seconds (31.8931 MB, 10466 rounds)
+Data sent = 56.5452 MB in ~16567 rounds (party 2 only; use '-v' for more details)
+Global data sent = 169.63 MB (all parties)
