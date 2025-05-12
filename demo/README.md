@@ -2,7 +2,7 @@
 Demonstration of Reflex: How SMPC Query Execution can be sped up through Efficient and Flexible Intermediate Result Size Trimming
 
 
-# This repo is for VLDB 2025 Reflex DEMO submission
+# This repo is for Reflex's DEMO submission
 
 
 # Instruction: How to use it
