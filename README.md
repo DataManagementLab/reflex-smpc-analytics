@@ -2,7 +2,7 @@
 Reflex: Efficient and Flexible Intermediate Result Size Trimming for SMPC Query Execution
 
 
-# This repo is for VLDB 2025 submission
+# This repo is for EuroSys 2026 submission
 
 
 # Instruction: How to use it
