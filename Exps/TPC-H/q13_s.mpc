@@ -1,0 +1,273 @@
+##############
+# SELECT c_count, count(*) as custdist
+# FROM (
+#     SELECT c_custkey, count(o_orderkey)
+#     FROM customer left outer join orders ON
+#       c_custkey = o_custkey
+#       AND o_comment = 'word'
+#     GROUP BY c_custkey) as c_orders(c_custkey, c_count)
+# GROUP BY c_count
+# ORDER BY custdist DESC, c_count DESC
+
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+sfix.set_precision(4, 32)
+program.use_split(3)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+true_matches = MemValue(sint(0))
+current_sum = MemValue(sint(0))
+
+def left_outer_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,16,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0]==t2[j][0]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t1[i][1]
+            intermediate_array[count][3] = t1[i][2] 
+            intermediate_array[count][4] = t1[i][3]
+
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+
+
+def noisy_filter_interval(input_table, inputsize, filter_col, lower_bound, upper_bound):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit1 = filter_col < upper_bound
+        relevant_bit2 = filter_col > lower_bound
+        relevant_bit = relevant_bit1.bit_and(relevant_bit2)
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    return intermediate_result
+
+
+def oblivious_group_by_count(sorted_matrix,msize): # same ki:(k,v) sum(vi)
+    result_m = Matrix(msize,16,sint)
+    @for_range_opt(msize)
+    def _(i):
+        result_m[i][0] = sorted_matrix[i][0]
+        result_m[i][1] = sorted_matrix[i][1]
+    
+        eqb = sorted_matrix[i][0] != sorted_matrix[i-1][0]
+        zerop = sint(i == 0)
+        fc = eqb.bit_or(zerop)
+        #print_ln("zerop is:%s, i is:%s",zerop.reveal(),i) 
+        #print_ln("fc is:%s",fc.reveal())  
+         
+        ktemp = (fc == 1).if_else(sint(0),current_sum)
+        current_sum.write(ktemp)
+        current_sum.write(current_sum + sint(1))
+        result_m[i-1][2] = (eqb == 1).if_else(sint(1),sint(0))
+        result_m[i][3] = current_sum
+    
+    result_m[msize-1][2] = sint(1)
+
+
+    return result_m
+
+
+def noisy_filter(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,16,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    return intermediate_result
+
+
+def noisy_filter_smaller_than(input_table, inputsize, filter_col1, filter_col2):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = filter_col1 < filter_col2
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    return intermediate_result
+
+
+def generate_truncated_laplace(sensitivity,epsilon,delta):
+    eoversen = epsilon/sensitivity
+    p = (np.exp(eoversen) - 1) / (np.exp(eoversen) + 1)
+    noise0 = sfix(-sensitivity * np.log((np.exp(eoversen) + 1) * delta) / epsilon + sensitivity)
+    r1 = sfix.get_random(0.0001,1)
+    r2 = sfix.get_random(0.0001,1)
+    r3 = sfix.get_random(0.0001,1)
+
+    u = (r1 + r2 + r3 ) / 3 
+    #print_ln("noise0 is:%s",noise0)
+    senovere = sensitivity / epsilon
+    ptsen = p * sensitivity
+    v1 = noise0 + senovere * mpc_math.log_fx(((epsilon*u)/ptsen), math.e)
+    v2 = noise0 - senovere * mpc_math.log_fx(((epsilon*(1-u))/ptsen), math.e)
+
+    v = (u <= 0.5).if_else(v1,v2)
+    print_ln("original noise is: %s", v.reveal())
+    return v
+
+
+def cut(minput,moutputsizex,moutputsizey):
+
+    result_m = Matrix(moutputsizey,moutputsizex,sint)
+    @for_range_opt(moutputsizey)
+    def _(i):
+            @for_range_opt(moutputsizex)
+            def _(j):
+                result_m[i][j] = minput[i][j]
+    
+    return result_m
+
+######################################
+#n = 1000 #table_size
+
+
+
+size_order = 200
+size_customer = 200
+
+cutrate = 0.2
+
+
+
+
+order = Matrix(size_order,9,sint)
+customer = Matrix(size_customer,8,sint)
+
+
+@for_range_opt(size_customer)
+def _(i):
+    customer[i][0] = sint.get_input_from(0) #key pid
+    customer[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(size_order)
+def _(i):
+    order[i][0] = sint.get_input_from(1) #key pid
+    order[i][1] = sint.get_input_from(1) #value
+
+
+
+
+start_timer(100)
+sensitivity = 1
+epsilon = 0.5
+delta = 0.00005
+noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+stop_timer(100)
+
+
+##########################################filter  o_comment = 'word'
+start_timer(101)
+keyword = sint(33425)
+filtered_table = noisy_filter(order,size_order,1,keyword)
+stop_timer(101)
+
+
+
+start_timer(102)
+filtered_table.sort()
+stop_timer(102)
+
+start_timer(103)
+size_cut = int(size_order*cutrate)
+cut1 = cut(filtered_table,16, size_cut)
+stop_timer(103)
+
+####################################left_outer join
+
+start_timer(200)
+size, intermediate_array = left_outer_join(cut1,size_cut,customer,size_customer)
+stop_timer(200)
+
+
+start_timer(202)
+intermediate_array.sort()
+stop_timer(202)
+
+start_timer(203)
+size_cut2 = int(size_cut*size_customer*cutrate)
+cut2 = cut(intermediate_array, 16, size_cut2)
+stop_timer(203)
+
+
+##################################group by/ program crash if the input size of sorting is too large
+start_timer(299)
+cut2.sort()
+stop_timer(299)
+
+
+start_timer(300)
+result_group = oblivious_group_by_count(cut2,size_cut2)
+stop_timer(300)
+
+
+
+start_timer(302)
+result_group.sort()
+stop_timer(302)
+
+start_timer(303)
+size_cut3 = int(size_cut2*cutrate)
+cut3 = cut(result_group, 16, size_cut3)
+stop_timer(303)
+
+
+######################################################################################
+
+start_timer(400)
+cut3.sort()
+stop_timer(400)
+
+start_timer(401)
+result_group2 = oblivious_group_by_count(cut3,size_cut3)
+stop_timer(401)
+
+start_timer(402)
+result_group2.sort()
+stop_timer(402)
+
+start_timer(403)
+size_cut4 = int(size_cut3*cutrate)
+cut4 = cut(result_group2, 16, size_cut3)
+stop_timer(403)
+
+
+
+########################################order by 2 cols could be merged to 1
+
+start_timer(412)
+cut4.sort()
+stop_timer(412)
+
+##./compile.py -l -R 128 -b 100000 -X q13

@@ -1,0 +1,369 @@
+##############
+# select
+# 	c_count,
+# 	count(*) as custdist
+# from
+# 	(
+# 		select
+# 			c_custkey,
+# 			count(o_orderkey)
+# 		from
+# 			customer left outer join orders on
+# 				c_custkey = o_custkey
+# 				and o_comment not like '%:1%:2%'
+# 		group by
+# 			c_custkey
+# 	) as c_orders (c_custkey, c_count)
+# group by
+# 	c_count
+# order by
+# 	custdist desc,
+# 	c_count desc;
+
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+sfix.set_precision(4, 32)
+program.use_split(3)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+true_matches = MemValue(sint(0))
+
+
+
+
+def flip_coin_online(noise,true_matches,table_size, r1 , r2 , r3):
+    v = (r1 + r2 + r3 ) / 3  
+    result = (v<=noise+true_matches*noise/table_size).if_else(sint(1),sint(0))
+    
+    return result
+
+def generate_truncated_laplace(sensitivity,epsilon,delta):
+    eoversen = epsilon/sensitivity
+    p = (np.exp(eoversen) - 1) / (np.exp(eoversen) + 1)
+    noise0 = sfix(-sensitivity * np.log((np.exp(eoversen) + 1) * delta) / epsilon + sensitivity)
+    r1 = sfix.get_random(0.0001,1)
+    r2 = sfix.get_random(0.0001,1)
+    r3 = sfix.get_random(0.0001,1)
+
+    u = (r1 + r2 + r3 ) / 3 
+    #print_ln("noise0 is:%s",noise0)
+    senovere = sensitivity / epsilon
+    ptsen = p * sensitivity
+    v1 = noise0 + senovere * mpc_math.log_fx(((epsilon*u)/ptsen), math.e)
+    v2 = noise0 - senovere * mpc_math.log_fx(((epsilon*(1-u))/ptsen), math.e)
+
+    v = (u <= 0.5).if_else(v1,v2)
+    print_ln("original noise is: %s", v.reveal())
+    return v
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,5,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0]==t2[j][0]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+def equi_join_withnoise(t1, table_size1, t2, table_size2, noise,r1,r2,r3):
+    intermediate_array = Matrix(table_size1*table_size2,6,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0] == t2[j][0]    
+            intermediate_size.iadd(match)
+            intermediate_array[count][5] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+    count.write(0)
+
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            coin  = flip_coin_online(noise,intermediate_size,table_size1*table_size2,r1,r2,r3)
+            fuzzyv = (intermediate_array[count][5] == 1).if_else(sint(1),coin)
+            intermediate_array[count][0] = fuzzyv
+            count.write(count+1)
+    count.write(0)
+
+    return intermediate_array
+
+def noisy_filter(input_table, inputsize, filter_col, keyword, noise,r1,r2,r3):
+    intermediate_result = Matrix(inputsize,4,sint)
+    print_ln("noisy filter start....")
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        #print_ln("relevant bit:%s",relevant_bit.reveal())
+        intermediate_size.iadd(relevant_bit)
+
+    
+    @for_range_opt(inputsize)
+    def _(i):
+        coin  = flip_coin_online(noise,intermediate_size,inputsize,r1,r2,r3)
+        intermediate_result[i][3] = (intermediate_result[i][2] == 1).if_else(sint(1),coin)
+    
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+
+def noisy_filter_smaller_than(input_table, inputsize, filter_col1, filter_col2, noise,r1,r2,r3):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = filter_col1 < filter_col2
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        intermediate_size.iadd(relevant_bit)
+
+    
+    @for_range_opt(inputsize)
+    def _(i):
+        coin  = flip_coin_online(noise,intermediate_size,inputsize,r1,r2,r3)
+        intermediate_result[i][3] = (intermediate_result[i][2] == 1).if_else(sint(1),coin)
+    
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+
+def noisy_filter_interval(input_table, inputsize, filter_col, lower_bound, upper_bound, noise,r1,r2,r3):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit1 = filter_col < upper_bound
+        relevant_bit2 = filter_col > lower_bound
+        relevant_bit = relevant_bit1.bit_and(relevant_bit2)
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        intermediate_size.iadd(relevant_bit)
+
+    
+    @for_range_opt(inputsize)
+    def _(i):
+        coin  = flip_coin_online(noise,intermediate_size,inputsize,r1,r2,r3)
+        intermediate_result[i][3] = (intermediate_result[i][2] == 1).if_else(sint(1),coin)
+    
+    intermediate_size.write(sint(0))
+    return intermediate_result
+
+
+def group_by_withoutoram(t_input_sorted,tsize,noise,r1,r2,r3):
+    agg = Array(tsize,sint)
+    agg_m = Matrix(tsize, 2, sint)
+    agg[0] = t_input_sorted[0][1]
+    agg_m[0][0] = sint(1)
+
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] == t_input_sorted[i+1][0]
+        temp = agg[i] + t_input_sorted[i+1][1]
+
+        #agg_m[i] = (eqb == 1).if_else(sint(0),sint(1))
+        agg[i+1] = (eqb == 1).if_else(temp,t_input_sorted[i+1][1])
+
+        # flagN = noise >= noise_count
+        # fMatch = flagN.bit_and(coin_seq[count+1])
+        
+        agg_m[i+1][0] = (eqb == 1).if_else(sint(0),sint(1))
+        true_matches.iadd(agg_m[i+1][0])
+
+    agg_m[tsize-1][0] = sint(1)
+    #noise_count.iadd(sint(1))
+
+    @for_range_opt(tsize)
+    def _(i):
+        coin = flip_coin_online(noise,true_matches,tsize,r1,r2,r3)
+        agg_m[i][1] = (agg_m[i][0] == 1).if_else(sint(1),coin)
+
+    return agg, agg_m
+
+
+def group_by_with_count(t_input_sorted,tsize,noise,r1,r2,r3):
+    agg = Array(tsize,sint)
+    agg_m = Matrix(tsize, 2, sint)
+    agg[0] = sint(1)
+    agg_m[0][0] = sint(1)
+
+
+    @for_range_opt(tsize-1)
+    def _(i):
+        eqb = t_input_sorted[i][0] == t_input_sorted[i+1][0]
+        #temp = agg[i] + t_input_sorted[i+1][1]
+
+        #agg_m[i] = (eqb == 1).if_else(sint(0),sint(1))
+        agg[i+1] = (eqb == 1).if_else(agg[i]+sint(1),sint(1))
+
+        # flagN = noise >= noise_count
+        # fMatch = flagN.bit_and(coin_seq[count+1])
+        
+        agg_m[i+1][0] = (eqb == 1).if_else(sint(0),sint(1))
+        true_matches.iadd(agg_m[i+1][0])
+
+    agg_m[tsize-1][0] = sint(1)
+    #noise_count.iadd(sint(1))
+
+    @for_range_opt(tsize)
+    def _(i):
+        coin = flip_coin_online(noise,true_matches,tsize,r1,r2,r3)
+        agg_m[i][1] = (agg_m[i][0] == 1).if_else(sint(1),coin)
+
+    return agg, agg_m
+
+
+def copy_function(input_table, input_size, expected_size):#output k,v
+    output = Matrix(expected_size,2, sint)
+    @for_range_opt(expected_size)
+    def _(i):
+        output[i][0] = input_table[i][0] #key pid
+        output[i][1] = input_table[i][1] #value
+
+    return output
+
+######################################
+#n = 1000 #table_size
+
+selectivity = 0.4
+
+
+size_order = 15000
+size_customer = 1500
+
+L = 0.03
+sensitivity = L*size_order
+epsilon = 0.5
+delta = 0.00005
+
+
+
+order = Matrix(size_order,9,sint)
+customer = Matrix(size_customer,8,sint)
+
+
+@for_range_opt(size_customer)
+def _(i):
+    customer[i][0] = sint.get_input_from(0) #key pid
+    customer[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(size_order)
+def _(i):
+    order[i][0] = sint.get_input_from(1) #key pid
+    order[i][1] = sint.get_input_from(1) #value
+
+
+start_timer(100)
+noise = generate_truncated_laplace(sensitivity,epsilon,delta)
+stop_timer(100)
+
+
+##########################################filter
+start_timer(101)
+keyword = sint(33425)
+r1 = sfix.get_random(0.1,size_order)
+r2 = sfix.get_random(0.1,size_order)
+r3 = sfix.get_random(0.1,size_order)
+filtered_table = noisy_filter(order,size_order,1,keyword,noise,r1,r2,r3)
+stop_timer(101)
+
+
+####################################inner join
+
+start_timer(200)
+r1 = sfix.get_random(0.1,int(size_customer*selectivity*size_order))
+r2 = sfix.get_random(0.1,int(size_customer*selectivity*size_order))
+r3 = sfix.get_random(0.1,int(size_customer*selectivity*size_order))
+print_ln("cartesian product:%s",size_customer*selectivity*size_order)
+intermediate_array = equi_join_withnoise(order,int(selectivity*size_order),customer,size_customer,noise,r1,r2,r3)
+stop_timer(200)
+
+
+start_timer(298)
+size_input = int(selectivity*size_order*size_customer)
+size_expected = int(selectivity*size_order*size_customer*selectivity)
+join_out_array = copy_function(intermediate_array,size_input,size_expected)
+stop_timer(298)
+
+
+##################################group by/ program crash if the input size of sorting is too large
+start_timer(299)
+join_out_array.sort()
+stop_timer(299)
+
+
+start_timer(300)
+r1 = sfix.get_random(0.1,size_expected)
+r2 = sfix.get_random(0.1,size_expected)
+r3 = sfix.get_random(0.1,size_expected)
+r,r_m = group_by_with_count(join_out_array,size_expected,noise,r1,r2,r3)
+stop_timer(300)
+
+
+start_timer(311)
+size_input = int(selectivity*size_order*size_customer)
+size_expected_expected = int(selectivity*size_order*size_customer*selectivity*selectivity)
+print_ln("size of expected is:%s",size_expected_expected)
+group_by_array = copy_function(r_m,size_expected,size_expected_expected)
+stop_timer(311)
+
+start_timer(312)
+group_by_array.sort()
+stop_timer(312)
+
+start_timer(400)
+r1 = sfix.get_random(0.1,size_order)
+r2 = sfix.get_random(0.1,size_order)
+r3 = sfix.get_random(0.1,size_order)
+r,r_m = group_by_with_count(group_by_array,size_expected_expected,noise,r1,r2,r3)
+stop_timer(400)
+
+start_timer(411)
+size_input = int(selectivity*size_order*size_customer)
+size_expected_expected = int(selectivity*size_order*size_customer*selectivity*selectivity)
+group_by_array = copy_function(r_m,size_expected,size_expected_expected)
+stop_timer(411)
+
+
+########################################order by 2 cols could be merged to 1
+
+start_timer(412)
+group_by_array.sort()
+stop_timer(412)
+
+##./compile.py -l -R 128 -b 100000 -X q13

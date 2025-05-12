@@ -1,0 +1,238 @@
+##############
+# SELECT sum(l_extendedprice * l_discount) as revenue
+# FROM lineitem
+# WHERE l_shipdate >= 'date1' AND
+#    l_shipdate < 'date2'
+#    AND l_discount <= 'discount' - 0.01
+#    AND l_discount >= 'discount' + 0.01
+#    AND l_quantity < 'quantity'
+#
+#    l_shipdata between date1 AND date2
+#    l_dicount between discount-0.01 and discount+0.01
+#    l_quantity < 24
+#
+
+###### Lineitem
+# 1.L_ORDERKEY|2.L_PARTKEY|3.L_SUPPKEY|4.L_LINENUMBER|5.L_QUANTITY|6.L_EXTENDEDPRICE|7.L_DISCOUNT|8.L_TAX|9.L_RETURNFLAG|10.L_LINESTATUS|11.L_SHIPDATE|
+# 12.L_COMMITDATE|13.L_RECEIPTDATE|14.L_SHIPINSTRUCT|15.L_SHIPMODE|16.L_COMMENT
+
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+sfix.set_precision(4, 32)
+program.use_split(3)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+true_matches = MemValue(sint(0))
+sum = MemValue(sint(0))
+bigvalue = 2**20
+
+date1 = sint(20150201)
+date2 = sint(20180301)
+
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,5,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0]==t2[j][0]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+
+def filter_between_date(t_input, tsizex, tsizey):
+    reuslt_m = Matrix(tsizey,tsizex+3,sint) #16+3 11 shipdate
+
+    @for_range_opt(tsizey)
+    def _(i):
+        matcht_bit1 = t_input[i][10] >= date1
+        matcht_bit2 = t_input[i][10] <= date2
+        match_bit = matcht_bit1.bit_and(matcht_bit2)
+
+        reuslt_m[i][16] = match_bit
+
+    return reuslt_m
+
+
+def filter_between_discount(t_input, tsizex, tsizey):
+    reuslt_m = Matrix(tsizey,tsizex+3,sint) #16+3 11 shipdate
+
+    @for_range_opt(tsizey)
+    def _(i):
+        matcht_bit1 = t_input[i][6] >= sfloat(0.59)
+        matcht_bit2 = t_input[i][6] <= sfloat(0.61)
+        match_bit = matcht_bit1.bit_and(matcht_bit2)
+
+        reuslt_m[i][17] = match_bit
+
+    return reuslt_m
+
+
+def filter_smaller_than(t_input, tsizex, tsizey):
+    reuslt_m = Matrix(tsizey,tsizex+3,sint) #16+3 11 shipdate
+
+    @for_range_opt(tsizey)
+    def _(i):
+        matcht_bit = t_input[i][4] < 24
+        reuslt_m[i][17] = matcht_bit
+
+    return reuslt_m
+
+
+def compute_revenue(t_input, tsizex, tsizey):
+    reuslt_m = Matrix(tsizey,tsizex+3,sint) #16+3 11 shipdate
+    
+    @for_range_opt(tsizey)
+    def _(i):
+        reuslt_m[i][18] = t_input[i][5]*t_input[i][6]
+        sum.write(sum + reuslt_m[i][18]*reuslt_m[i][17])
+
+    return sum
+
+
+def reveal_copy(input_size, output_size, inputmatrix):
+    resultm = Matrix(output_size,16,sint)
+    @for_range_opt(input_size)
+    def _(i):
+        inputmatrix[i][0].reveal()
+
+    @for_range_opt(output_size)
+    def _(i):
+        resultm = inputmatrix[i][0]
+
+
+    return resultm
+
+def sum_online(r1,r2,r3):
+    return r1+r2+r3
+
+def compute_threshold_three_servers(noise, true_matches,table_size, numberOfservers):
+    return int(noise/((table_size-true_matches)*bigvalue*numberOfservers+1))
+
+def flip_coin_new(threshold, c1i):
+    result = (c1i<=threshold).if_else(sint(1),sint(0))
+    return result
+
+def resizer_operator_parallel(inputtable, inputsizex, inputsizey, truematches, noise, threshold, rlist0,rlist1,rlist2):#inputtable_index0 is c1
+    start_timer(777)
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    @for_range_opt(inputsizey)
+    def _(i):
+        coin  = flip_coin_new(threshold, sum_online(rlist0[i],rlist1[i],rlist2[i]))
+        fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+        output[i][inputsizex] = fuzzyv
+
+    stop_timer(777)
+    start_timer(888)
+    output.secure_shuffle()
+    stop_timer(888)
+
+    start_timer(999)
+    outm = reveal_copy(inputsizey,int(truematches+noise),output)
+    stop_timer(999)
+
+    return outm
+
+######################################
+#n = 1000 #table_size
+
+size_lineitem = 400
+x = 16
+cutrate = 0.1
+
+lineitem = Matrix(size_lineitem,16,sint)
+
+@for_range_opt(size_lineitem)
+def _(i):
+    lineitem[i][10] = sint.get_input_from(0)
+    lineitem[i][6] = sint.get_input_from(0) 
+    lineitem[i][4] = sint.get_input_from(0) 
+
+########################################## random
+
+number_of_rand = 1000000
+
+rlist0 = sint.Array(number_of_rand)
+rlist1 = sint.Array(number_of_rand)
+rlist2 = sint.Array(number_of_rand)
+
+
+@for_range_opt(number_of_rand)
+def _(i):
+    rlist0[i] = sint.get_input_from(0)
+    rlist1[i] = sint.get_input_from(1)
+    rlist2[i] = sint.get_input_from(2)
+
+##########################################
+##########################################filter
+
+
+start_timer(101)
+result_f = filter_between_date(lineitem, x, size_lineitem)
+stop_timer(101)
+
+
+start_timer(102)
+noise = int(size_lineitem*cutrate)
+true_match = int(size_lineitem*cutrate)
+threshold = compute_threshold_three_servers(noise, true_match, size_lineitem,3)
+cut1 = resizer_operator_parallel(result_f, 16,size_lineitem,true_match,noise, threshold, rlist0, rlist1, rlist2)
+size_cut1 = true_match+noise
+stop_timer(102)
+
+###########################################
+
+start_timer(200)
+result_f2 = filter_between_discount(cut1,x,size_cut1)
+stop_timer(200)
+
+
+start_timer(201)
+noise = int(size_cut1*cutrate)
+true_match = int(size_cut1*cutrate)
+threshold = compute_threshold_three_servers(noise, true_match, size_cut1,3)
+cut2 = resizer_operator_parallel(result_f, 16,size_cut1,true_match,noise, threshold, rlist0, rlist1, rlist2)
+size_cut2 = true_match+noise
+stop_timer(201)
+
+
+###########################################
+
+start_timer(300)
+result_f3 = filter_smaller_than(cut2,x,size_cut2)
+stop_timer(300)
+
+
+start_timer(301)
+noise = int(size_cut2*cutrate)
+true_match = int(size_cut2*cutrate)
+threshold = compute_threshold_three_servers(noise, true_match, size_cut2,3)
+cut3 = resizer_operator_parallel(result_f, 16,size_cut2,true_match,noise, threshold, rlist0, rlist1, rlist2)
+size_cut3 = true_match+noise
+stop_timer(301)
+
+###########################################
+
+start_timer(400)
+compute_revenue(cut3,x, size_cut3)
+stop_timer(400)

@@ -1,0 +1,191 @@
+##############
+# SELECT c_count, count(*) as custdist
+# FROM (
+#     SELECT c_custkey, count(o_orderkey)
+#     FROM customer left outer join orders ON
+#       c_custkey = o_custkey
+#       AND o_comment = 'word'
+#     GROUP BY c_custkey) as c_orders(c_custkey, c_count)
+# GROUP BY c_count
+# ORDER BY custdist DESC, c_count DESC
+
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+sfix.set_precision(4, 32)
+program.use_split(3)
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+true_matches = MemValue(sint(0))
+current_sum = MemValue(sint(0))
+
+def left_outer_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,5,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0]==t2[j][0]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t1[i][1]
+            intermediate_array[count][3] = t1[i][2] 
+            intermediate_array[count][4] = t1[i][3]
+
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+
+
+def noisy_filter_interval(input_table, inputsize, filter_col, lower_bound, upper_bound):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit1 = filter_col < upper_bound
+        relevant_bit2 = filter_col > lower_bound
+        relevant_bit = relevant_bit1.bit_and(relevant_bit2)
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    return intermediate_result
+
+
+def oblivious_group_by_count(sorted_matrix,msize): # same ki:(k,v) sum(vi)
+    result_m = Matrix(msize,4,sint)
+    @for_range_opt(msize)
+    def _(i):
+        result_m[i][0] = sorted_matrix[i][0]
+        result_m[i][1] = sorted_matrix[i][1]
+    
+        eqb = sorted_matrix[i][0] != sorted_matrix[i-1][0]
+        zerop = sint(i == 0)
+        fc = eqb.bit_or(zerop)
+        #print_ln("zerop is:%s, i is:%s",zerop.reveal(),i) 
+        #print_ln("fc is:%s",fc.reveal())  
+         
+        ktemp = (fc == 1).if_else(sint(0),current_sum)
+        current_sum.write(ktemp)
+        current_sum.write(current_sum + sint(1))
+        result_m[i-1][2] = (eqb == 1).if_else(sint(1),sint(0))
+        result_m[i][3] = current_sum
+    
+    result_m[msize-1][2] = sint(1)
+
+
+    return result_m
+
+
+def noisy_filter(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    return intermediate_result
+
+
+def noisy_filter_smaller_than(input_table, inputsize, filter_col1, filter_col2):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = filter_col1 < filter_col2
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    return intermediate_result
+
+######################################
+#n = 1000 #table_size
+
+
+
+size_order = 300
+size_customer = 300
+
+
+
+
+order = Matrix(size_order,9,sint)
+customer = Matrix(size_customer,8,sint)
+
+
+@for_range_opt(size_customer)
+def _(i):
+    customer[i][0] = sint.get_input_from(0) #key pid
+    customer[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(size_order)
+def _(i):
+    order[i][0] = sint.get_input_from(1) #key pid
+    order[i][1] = sint.get_input_from(1) #value
+
+
+
+
+##########################################filter  o_comment = 'word'
+start_timer(101)
+keyword = sint(33425)
+filtered_table = noisy_filter(order,size_order,1,keyword)
+stop_timer(101)
+
+
+####################################left_outer join
+
+start_timer(200)
+size, intermediate_array = left_outer_join(filtered_table,size_order,customer,size_customer)
+stop_timer(200)
+
+
+
+##################################group by/ program crash if the input size of sorting is too large
+start_timer(299)
+intermediate_array.sort()
+stop_timer(299)
+
+
+start_timer(300)
+result_group = oblivious_group_by_count(intermediate_array,size_customer*size_order)
+stop_timer(300)
+
+
+
+start_timer(312)
+result_group.sort()
+stop_timer(312)
+
+start_timer(400)
+result_group = oblivious_group_by_count(result_group,size_customer*size_order)
+stop_timer(400)
+
+
+
+########################################order by 2 cols could be merged to 1
+
+start_timer(412)
+result_group.sort()
+stop_timer(412)
+
+##./compile.py -l -R 128 -b 100000 -X q13

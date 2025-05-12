@@ -1,0 +1,293 @@
+##############
+# select
+# 	o_orderpriority,
+# 	count(*) as order_count
+# from
+# 	orders
+# where
+# 	o_orderdate >= date '1991-01-01'
+# 	and o_orderdate < date '2000-01-01' + interval '3' month
+# 	and exists (
+# 		select
+# 			*
+# 		from
+# 			lineitem
+# 		where
+# 			l_orderkey = o_orderkey
+# 			and l_commitdate < l_receiptdate
+# 	)
+# group by
+# 	o_orderpriority
+# order by
+# 	o_orderpriority;
+
+from util import if_else
+import numpy as np
+import mpc_math
+import math
+
+program.use_trunc_pr = True
+sfix.set_precision(4, 32)
+program.use_split(3)
+
+bigvalue = 2**20
+
+
+count = MemValue(0)
+intermediate_size = MemValue(sint(0))
+interval_intermediate_size = MemValue(sint(0))
+noise_count = MemValue(sint(0))
+true_matches_filter1 = MemValue(sint(0))
+true_matches_interval = MemValue(sint(0))
+true_match_groupby = MemValue(sint(0))
+current_sum = MemValue(sint(0))
+
+
+def equi_join(t1, table_size1, t2, table_size2):
+    intermediate_array = Matrix(table_size1*table_size2,16,sint)
+    
+    @for_range_opt(table_size1)
+    def _(i):
+        @for_range_opt(table_size2)
+        def _(j):
+            match = t1[i][0]==t2[j][0]
+
+            intermediate_size.iadd(match)
+            intermediate_array[count][0] = match
+            intermediate_array[count][1] = t1[i][0] 
+            intermediate_array[count][2] = t2[j][0]
+            intermediate_array[count][3] = t1[i][1] 
+            intermediate_array[count][4] = t2[j][1]
+            count.write(count+1)
+    count.write(0)
+    
+
+    return intermediate_size, intermediate_array
+
+
+def noisy_filter_interval(input_table, inputsize, filter_col, lower_bound, upper_bound):
+    intermediate_result = Matrix(inputsize,16,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit1 = filter_col < upper_bound
+        relevant_bit2 = filter_col > lower_bound
+        relevant_bit = relevant_bit1.bit_and(relevant_bit2)
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        true_matches_interval.iadd(relevant_bit)
+
+    return true_matches_interval, intermediate_result
+
+
+def oblivious_group_by_count(sorted_matrix,msize): # same ki:(k,v) sum(vi)
+    result_m = Matrix(msize,16,sint)
+    @for_range_opt(msize)
+    def _(i):
+        result_m[i][0] = sorted_matrix[i][0]
+        result_m[i][1] = sorted_matrix[i][1]
+    
+        eqb = sorted_matrix[i][0] != sorted_matrix[i-1][0]
+        zerop = sint(i == 0)
+        fc = eqb.bit_or(zerop)      
+        ktemp = (fc == 1).if_else(sint(0),current_sum)
+        current_sum.write(ktemp)
+        current_sum.write(current_sum + sint(1))
+        result_m[i-1][2] = (eqb == 1).if_else(sint(1),sint(0))
+        result_m[i][3] = current_sum
+        true_match_groupby.iadd(eqb)
+    
+    result_m[msize-1][2] = sint(1)
+
+
+    return true_match_groupby, result_m
+
+
+def noisy_filter(input_table, inputsize, filter_col, keyword):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = input_table[i][filter_col] == keyword
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+
+    return intermediate_result
+
+
+def noisy_filter_smaller_than(input_table, inputsize, filter_col1, filter_col2):
+    intermediate_result = Matrix(inputsize,4,sint)
+
+    @for_range_opt(inputsize)
+    def _(i):
+        relevant_bit = filter_col1 < filter_col2
+
+        intermediate_result[i][0] = input_table[i][0]
+        intermediate_result[i][1] = input_table[i][1]
+        intermediate_result[i][2] = relevant_bit
+        true_matches_filter1.iadd(relevant_bit)
+
+    return true_matches_filter1, intermediate_result
+
+
+def reveal_copy(input_size, output_size, inputmatrix):
+    resultm = Matrix(output_size,6,sint)
+    @for_range_opt(input_size)
+    def _(i):
+        inputmatrix[i][0].reveal()
+
+    @for_range_opt(output_size)
+    def _(i):
+        resultm = inputmatrix[i][0]
+
+
+    return resultm
+
+def sum_online(r1,r2,r3):
+    return r1+r2+r3
+
+def compute_threshold_three_servers(noise, true_matches,table_size, numberOfservers):
+    return int(noise/((table_size-true_matches)*bigvalue*numberOfservers+1))
+
+def flip_coin_new(threshold, c1i):
+    result = (c1i<=threshold).if_else(sint(1),sint(0))
+    return result
+
+def resizer_operator_parallel(inputtable, inputsizex, inputsizey, truematches, noise, threshold, rlist0,rlist1,rlist2):#inputtable_index0 is c1
+    start_timer(777)
+    output = Matrix(inputsizey,inputsizex+1,sint)
+    @for_range_opt(inputsizey)
+    def _(i):
+        coin  = flip_coin_new(threshold, sum_online(rlist0[i],rlist1[i],rlist2[i]))
+        fuzzyv = (inputtable[i][0] == 1).if_else(sint(1),coin)
+        output[i][inputsizex] = fuzzyv
+
+    stop_timer(777)
+    start_timer(888)
+    output.secure_shuffle()
+    stop_timer(888)
+
+    start_timer(999)
+    outm = reveal_copy(inputsizey,int(truematches+noise),output)
+    stop_timer(999)
+
+    return outm
+
+######################################
+#n = 1000 #table_size
+
+
+size_lineitem = 900
+size_order = 900
+
+cutrate = 0.1
+
+
+lineitem = Matrix(size_lineitem,16,sint)
+order = Matrix(size_order,9,sint)
+
+
+@for_range_opt(size_lineitem)
+def _(i):
+    lineitem[i][0] = sint.get_input_from(0) #key pid
+    lineitem[i][1] = sint.get_input_from(0) #value
+
+@for_range_opt(size_order)
+def _(i):
+    order[i][0] = sint.get_input_from(1) #key pid
+    order[i][1] = sint.get_input_from(1) #value
+
+
+########################################## random
+
+number_of_rand = 1000000
+
+rlist0 = sint.Array(number_of_rand)
+rlist1 = sint.Array(number_of_rand)
+rlist2 = sint.Array(number_of_rand)
+
+
+@for_range_opt(number_of_rand)
+def _(i):
+    rlist0[i] = sint.get_input_from(0)
+    rlist1[i] = sint.get_input_from(1)
+    rlist2[i] = sint.get_input_from(2)
+
+##########################################filter l_commitdate < l_receiptdate
+start_timer(101)
+keyword = sint(1)
+ture_match, filtered_table = noisy_filter_smaller_than(lineitem,size_lineitem,1,keyword)
+stop_timer(101)
+
+
+
+start_timer(102)
+noise = int(size_lineitem*cutrate)
+true_match = int(size_lineitem*cutrate)
+threshold = compute_threshold_three_servers(noise, true_match, size_lineitem,3)
+cut1 = resizer_operator_parallel(filtered_table,16,size_lineitem,true_match,noise, threshold, rlist0, rlist1, rlist2)
+size_cut1 = true_match+noise
+stop_timer(102)
+
+
+####################################inner join l_orderkey = o_orderkey
+
+start_timer(200)
+
+true_match_join, intermediate_array = equi_join(cut1,size_cut1,order,size_order)
+stop_timer(200)
+
+
+start_timer(202)
+noise = int(size_cut1*size_order*cutrate)
+true_match = int(size_cut1*size_order*cutrate)
+threshold = compute_threshold_three_servers(noise, true_match,size_cut1*size_order,3)
+cut2 = resizer_operator_parallel(intermediate_array,16,size_cut1*size_order,true_match,noise, threshold, rlist0, rlist1, rlist2)
+size_cut2 = true_match+noise
+stop_timer(202)
+
+##################################right join, filter interval o_orderdate >= 'date1' AND o_orderdate < 'date2'
+
+start_timer(300)
+lower_bound = sint(10)
+upper_bound = sint(20000)
+true_match_interval, filtered_table = noisy_filter_interval(cut2,size_cut2,1,lower_bound, upper_bound)
+stop_timer(300)
+
+
+start_timer(302)
+noise = int(size_cut2*cutrate)
+true_match = int(size_cut2*cutrate)
+threshold = compute_threshold_three_servers(noise, true_match,size_cut2,3)
+cut3 = resizer_operator_parallel(filtered_table,16,size_cut2,true_match, noise, threshold, rlist0, rlist1, rlist2)
+size_cut3 = true_match+noise
+stop_timer(302)
+
+
+
+start_timer(400)
+cut3.sort()
+stop_timer(400)
+
+
+start_timer(402)
+true_match_groupby, groupby_result = oblivious_group_by_count(cut3, size_cut3)
+stop_timer(402)
+
+start_timer(403)
+noise = int(size_cut3*cutrate)
+true_match= int(size_cut3*cutrate)
+threshold = compute_threshold_three_servers(noise, true_match, size_cut3,3)
+cut4 = resizer_operator_parallel(filtered_table,16,size_cut3,true_match, noise, threshold, rlist0, rlist1, rlist2)
+size_cut4 = true_match+noise
+stop_timer(403)
+
+
+
+start_timer(500)
+cut4.sort()
+stop_timer(500)
