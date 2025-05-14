@@ -1,8 +1,8 @@
-# reflex-smpc-analytics
-Demonstration of Reflex: How SMPC Query Execution can be sped up through Efficient and Flexible Intermediate Result Size Trimming
+# flux-faster-smpc-analytics
+Demonstration of Flux: How SMPC Query Execution can be sped up through Efficient and Flexible Intermediate Result Size Trimming
 
 
-# This repo is for Reflex's DEMO
+# This repo is for Flux's DEMO
 
 
 # Instruction: How to use it

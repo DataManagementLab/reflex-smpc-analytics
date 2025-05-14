@@ -106,7 +106,7 @@ def find_time_from_stdout(stdout_output):
 
 
 # if __name__ == "__main__":
-#     file_list = gen_tests(100,200,100,'threejoin','reflex')
+#     file_list = gen_tests(100,200,100,'threejoin','flux')
 #     compile_tests(file_list)
 #     timepoint = run_test(file_list)
 
