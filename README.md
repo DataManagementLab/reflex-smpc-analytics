@@ -1,6 +1,5 @@
 # reflex-smpc-analytics
-Reflex: Efficient and Flexible Intermediate Result Size Trimming for SMPC Query Execution
-
+Paper: Faster Secure Collaborative Analytics via Controlled Intermediate Result Size Disclosure
 
 # This repo is for EuroSys 2026 submission
 
