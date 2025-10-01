@@ -1,7 +1,7 @@
-# flux-faster-smpc-analytics
-Paper: Faster Secure Collaborative Analytics via Controlled Intermediate Result Size Disclosure
+# reflex-faster-smpc-analytics
+Reflex: Faster Secure Collaborative Analytics via Controlled Intermediate Result Size Disclosure
 
-# This repo is for EuroSys 2026 submission
+# This repo is for EDBT 2026 submission
 
 
 # Instruction: How to use it
