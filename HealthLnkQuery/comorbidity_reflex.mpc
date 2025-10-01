@@ -66,8 +66,8 @@ n = 1000
 x = 6
 t1 = Array(n,sint)
 diagnose = Matrix(n,2,sint)
-percentage = 0.1
-truematches = int(n*percentage)
+percentage = 0.5
+truematches = int(0.1*n)
 number_of_rand = 1000000
 
 

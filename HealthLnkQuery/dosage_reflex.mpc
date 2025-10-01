@@ -139,12 +139,10 @@ x= 6
 sensitivity = 1
 epsilon = 0.5
 delta = 0.00005
-percentage = 0.1
-truematches = int(n*percentage)
 
 number_of_rand = 1000000
-percentage = 0.1
-truematches = int(n*percentage)
+percentage = 0.5
+truematches = int(0.1*n)
 
 print_ln("n is:%s",n)
 
@@ -169,18 +167,19 @@ def _(i):
 
 
 
+start_timer(98)
 @for_range_opt(number_of_rand)
 def _(i):
     rlist0[i] = sint.get_input_from(0)
     rlist1[i] = sint.get_input_from(1)
     rlist2[i] = sint.get_input_from(2)
+stop_timer(98)
 
 
 
-
-start_timer(100)
+#start_timer(100)
 noise = generate_truncated_laplace(sensitivity,epsilon,delta)
-stop_timer(100)
+#stop_timer(100)
 
 
 start_timer(200)

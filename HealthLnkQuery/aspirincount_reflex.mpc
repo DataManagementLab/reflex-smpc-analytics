@@ -37,6 +37,7 @@ def generate_truncated_laplace(sensitivity,epsilon,delta):
     r1 = sfix.get_random(0.0001,1)
     r2 = sfix.get_random(0.0001,1)
     r3 = sfix.get_random(0.0001,1)
+
     u = (r1 + r2 + r3 ) / 3 
     #print_ln("noise0 is:%s",noise0)
     senovere = sensitivity / epsilon
@@ -149,8 +150,8 @@ delta = 0.00005
 n = 1000
 x = 6
 number_of_rand = 1000000
-percentage = 0.1
-truematches = int(n*percentage)
+percentage = 0.5
+truematches = int(0.1*n)
 
 
 print_ln("n is:%s",n)
