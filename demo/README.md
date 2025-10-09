@@ -1,8 +1,8 @@
-# flux-faster-smpc-analytics
-Demonstration of Flux: How SMPC Query Execution can be sped up through Efficient and Flexible Intermediate Result Size Trimming
+# reflex-faster-smpc-analytics
+Demonstration of Reflex: Faster Secure Collaborative Analytics via Controlled Intermediate Result Size Disclosure
 
 
-# This repo is for Flux's DEMO
+# This repo is for reflex's DEMO
 
 
 # Instruction: How to use it
